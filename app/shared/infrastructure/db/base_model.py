@@ -2,11 +2,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Column, DateTime
+from sqlalchemy import DateTime
 from sqlmodel import Field, SQLModel
 
 
-def utc_now() -> datetime:
+def ahora_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
@@ -17,42 +17,36 @@ class BaseModel(SQLModel):
 
     Campos incluidos:
     - id            → UUID v4 generado automáticamente (PK)
-    - state         → soft-delete flag (True = activo)
-    - created_date  → timestamp de creación (UTC con timezone)
-    - modified_date → timestamp de última modificación (actualizado automáticamente en cada UPDATE)
-    - deleted_date  → timestamp de eliminación lógica (nullable)
+    - fecha_creacion      → fecha de creación (UTC con zona horaria)
+    - fecha_actualizacion → fecha de última actualización (se actualiza en cada UPDATE)
+    - fecha_eliminacion   → fecha de eliminación lógica (nullable)
     """
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    state: bool = Field(default=True, index=True)
-
-    created_date: datetime = Field(
-        default_factory=utc_now,
-        sa_column=Column(DateTime(timezone=True), nullable=False, default=utc_now),
+    fecha_creacion: datetime = Field(
+        default_factory=ahora_utc,
+        sa_type=DateTime(timezone=True),
+        nullable=False,
     )
-    modified_date: datetime = Field(
-        default_factory=utc_now,
-        sa_column=Column(
-            DateTime(timezone=True),
-            nullable=False,
-            default=utc_now,
-            onupdate=utc_now,
-        ),
+    fecha_actualizacion: datetime = Field(
+        default_factory=ahora_utc,
+        sa_type=DateTime(timezone=True),
+        nullable=False,
+        sa_column_kwargs={"onupdate": ahora_utc},
     )
-    deleted_date: Optional[datetime] = Field(
+    fecha_eliminacion: Optional[datetime] = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True),
+        sa_type=DateTime(timezone=True),
+        nullable=True,
     )
 
-    def soft_delete(self) -> None:
+    def eliminar_logicamente(self) -> None:
         """Marca el registro como inactivo y registra la fecha de eliminación."""
-        now = utc_now()
-        self.state = False
-        self.deleted_date = now
-        self.modified_date = now
+        momento_actual = ahora_utc()
+        self.fecha_eliminacion = momento_actual
+        self.fecha_actualizacion = momento_actual
 
-    def restore(self) -> None:
+    def restaurar(self) -> None:
         """Restaura un registro eliminado lógicamente."""
-        self.state = True
-        self.deleted_date = None
-        self.modified_date = utc_now()
+        self.fecha_eliminacion = None
+        self.fecha_actualizacion = ahora_utc()

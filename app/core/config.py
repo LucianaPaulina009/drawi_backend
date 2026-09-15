@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     # Al estar en False, el backend NO exige el claim 'role' en el JWT;
     # únicamente valida que el usuario esté autenticado con un token válido.
     BETTER_AUTH_ENABLE_ROLES: bool = Field(
-        default=True, env="BETTER_AUTH_ENABLE_ROLES"
+        default=False, env="BETTER_AUTH_ENABLE_ROLES"
     )
 
     # URL personalizada para descargar el JWKS (útil si FastAPI corre en Docker

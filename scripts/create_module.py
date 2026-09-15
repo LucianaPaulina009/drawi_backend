@@ -80,12 +80,12 @@ def create_module(module_name: str) -> None:
 from app.shared.domain.exceptions import NotFoundException, ValidationException
 
 
-class {pascal_name}NotFoundException(NotFoundException):
+class {pascal_name}NoEncontradoException(NotFoundException):
     code = "{clean_name.upper()}_NOT_FOUND"
     message = "El recurso solicitado de {clean_name} no fue encontrado."
 
 
-class Invalid{pascal_name}DataException(ValidationException):
+class Datos{pascal_name}InvalidosException(ValidationException):
     code = "INVALID_{clean_name.upper()}_DATA"
     message = "Los datos proporcionados para {clean_name} no son válidos."
 '''
@@ -96,7 +96,7 @@ class Invalid{pascal_name}DataException(ValidationException):
 
 from dataclasses import dataclass
 from app.shared.domain.value_object import ValueObject
-from app.modules.{clean_name}.domain.exceptions import Invalid{pascal_name}DataException
+from app.modules.{clean_name}.domain.exceptions import Datos{pascal_name}InvalidosException
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +111,7 @@ class {pascal_name}Code(ValueObject):
 
     def validate(self) -> None:
         if not self.value or len(self.value) < 3:
-            raise Invalid{pascal_name}DataException("El código debe tener al menos 3 caracteres.")
+            raise Datos{pascal_name}InvalidosException("El código debe tener al menos 3 caracteres.")
 '''
     (module_dir / "domain" / "value_objects" / f"{clean_name}_code.py").write_text(vo_content, encoding="utf-8")
 

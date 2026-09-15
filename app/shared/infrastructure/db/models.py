@@ -16,3 +16,16 @@
 # ============================================================
 
 # ruff: noqa: F401
+from app.modules.diagramas.infrastructure.persistence.models.diagrama_model import (
+    DiagramaModel,
+)
+from app.modules.diagramas.infrastructure.persistence.models.clase_model import ClaseModel
+from app.modules.diagramas.infrastructure.persistence.models.atributo_model import AtributoModel
+from app.modules.gestion_proyectos.infrastructure.persistence.models.proyecto_favorito_model import (
+    ProyectoFavoritoModel,
+)
+from app.modules.gestion_proyectos.infrastructure.persistence.models.proyecto_model import (
+    ProyectoModel,
+)
+from app.shared.infrastructure.db.better_auth import BetterAuthUser
+

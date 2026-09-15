@@ -10,7 +10,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import engine, init_db
 from app.core.dependencies import get_event_bus
-from app.core.errors.handlers import setup_exception_handlers
+from app.core.errors.handlers import configurar_manejadores_excepciones
 from app.core.events.subscriptions import configure_event_subscriptions
 
 # Configuración de logging estándar
@@ -68,7 +68,7 @@ app = FastAPI(
     },
 )
 
-setup_exception_handlers(app)
+configurar_manejadores_excepciones(app)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
@@ -116,7 +116,20 @@ def health_check():
 
 
 # ==============================================================================
-# REGISTRO DE ROUTERS (descomenta según vayas agregando módulos)
+# REGISTRO DE ROUTERS
 # ==============================================================================
-# app.include_router(module_a_router, prefix="/api/module-a", tags=["Module A"])
-# app.include_router(module_b_router, prefix="/api/module-b", tags=["Module B"])
+from app.modules.gestion_proyectos.infrastructure.api.routers.proyecto_router import (
+    router as proyecto_router,
+)
+from app.modules.diagramas.infrastructure.api.routers.diagrama_router import (
+    router as diagrama_router,
+)
+from app.modules.diagramas.infrastructure.api.routers.clase_router import (
+    router as clase_router,
+)
+from app.modules.diagramas.infrastructure.api.routers.atributo_router import router as atributo_router
+
+app.include_router(proyecto_router, prefix="/api")
+app.include_router(diagrama_router, prefix="/api")
+app.include_router(clase_router, prefix="/api")
+app.include_router(atributo_router, prefix="/api")
