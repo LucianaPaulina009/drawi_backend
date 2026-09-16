@@ -226,9 +226,24 @@ def require_role(*roles: Role | str):
     return _guard
 
 
+def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> AuthUser | None:
+    """Extrae el usuario autenticado si existe un token válido; retorna None si no se envió token."""
+    if credentials is None:
+        return None
+    try:
+        return get_current_user(credentials)
+    except Exception:
+        return None
+
+
 # ── Aliases listos para usar en endpoints ─────────────────────────────────────
 CurrentUser = Annotated[AuthUser, Depends(get_current_user)]
 """Cualquier usuario con JWT válido (funciona tanto con roles como sin roles)."""
+
+OptionalUser = Annotated[AuthUser | None, Depends(get_optional_user)]
+"""Usuario opcional si envió token Bearer válido, None en caso contrario."""
 
 Admin = Annotated[AuthUser, Depends(require_role(Role.ADMIN))]
 """Solo usuarios con role='admin' (requiere BETTER_AUTH_ENABLE_ROLES=True)."""

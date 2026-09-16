@@ -9,6 +9,9 @@ from app.modules.diagramas.domain.repositories.clase_repository import ClaseRepo
 from app.modules.diagramas.domain.repositories.diagrama_repository import (
     DiagramaRepository,
 )
+from app.modules.gestion_proyectos.domain.repositories.colaborador_proyecto_repository import (
+    ColaboradorProyectoRepository,
+)
 from app.modules.gestion_proyectos.domain.repositories.proyecto_repository import (
     ProyectoRepository,
 )
@@ -32,11 +35,13 @@ class CrearClaseUseCase:
         diagrama_repository: DiagramaRepository,
         clase_repository: ClaseRepository,
         uow: UnitOfWork,
+        colaborador_repository: ColaboradorProyectoRepository | None = None,
     ) -> None:
         self.proyecto_repository = proyecto_repository
         self.diagrama_repository = diagrama_repository
         self.clase_repository = clase_repository
         self.uow = uow
+        self.colaborador_repository = colaborador_repository
 
     def execute(self, command: CrearClaseCommand) -> Clase:
         obtener_diagrama_autorizado(
@@ -44,6 +49,7 @@ class CrearClaseUseCase:
             diagrama_id=command.diagrama_id,
             proyecto_repository=self.proyecto_repository,
             diagrama_repository=self.diagrama_repository,
+            colaborador_repository=self.colaborador_repository,
         )
         clase = Clase.crear(
             id_diagrama=command.diagrama_id,

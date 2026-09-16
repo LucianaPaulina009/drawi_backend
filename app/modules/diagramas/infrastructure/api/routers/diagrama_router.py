@@ -41,6 +41,9 @@ from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_clas
 from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_atributo_repository import (
     SQLModelAtributoRepository,
 )
+from app.modules.gestion_proyectos.infrastructure.persistence.repositories.sqlmodel_colaborador_proyecto_repository import (
+    SQLModelColaboradorProyectoRepository,
+)
 from app.modules.gestion_proyectos.infrastructure.persistence.repositories.sqlmodel_proyecto_repository import (
     SQLModelProyectoRepository,
 )
@@ -62,7 +65,7 @@ def _a_read(diagrama) -> DiagramaRead:
     "/{id_proyecto}/diagramas",
     response_model=ListaDiagramasRead,
     status_code=status.HTTP_200_OK,
-    summary="Listar diagramas de un proyecto propio",
+    summary="Listar diagramas de un proyecto autorizado",
 )
 def listar_diagramas(
     id_proyecto: UUID,
@@ -71,9 +74,12 @@ def listar_diagramas(
 ) -> ListaDiagramasRead:
     proyecto_repo = SQLModelProyectoRepository(session)
     diagrama_repo = SQLModelDiagramaRepository(session)
-    resultado = ListarDiagramasQueryHandler(proyecto_repo, diagrama_repo).execute(
+    colaborador_repo = SQLModelColaboradorProyectoRepository(session)
+    resultado = ListarDiagramasQueryHandler(
+        proyecto_repo, diagrama_repo, colaborador_repo
+    ).execute(
         ListarDiagramasQuery(
-            propietario_id=usuario.user_id,
+            usuario_id=usuario.user_id,
             proyecto_id=id_proyecto,
         )
     )
@@ -84,7 +90,7 @@ def listar_diagramas(
     "/{id_proyecto}/diagramas/{id_diagrama}",
     response_model=DiagramaDetalleRead,
     status_code=status.HTTP_200_OK,
-    summary="Consultar un diagrama propio",
+    summary="Consultar un diagrama autorizado",
 )
 def obtener_diagrama(
     id_proyecto: UUID,
@@ -96,11 +102,12 @@ def obtener_diagrama(
     diagrama_repo = SQLModelDiagramaRepository(session)
     clase_repo = SQLModelClaseRepository(session)
     atributo_repo = SQLModelAtributoRepository(session)
+    colaborador_repo = SQLModelColaboradorProyectoRepository(session)
     resultado = ObtenerDiagramaCompletoQueryHandler(
-        proyecto_repo, diagrama_repo, clase_repo, atributo_repo
+        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo
     ).execute(
         ObtenerDiagramaQuery(
-            propietario_id=usuario.user_id,
+            usuario_id=usuario.user_id,
             proyecto_id=id_proyecto,
             diagrama_id=id_diagrama,
         )

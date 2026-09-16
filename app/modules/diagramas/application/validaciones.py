@@ -5,7 +5,13 @@ from app.modules.diagramas.domain.exceptions import DiagramaNoEncontradoExceptio
 from app.modules.diagramas.domain.repositories.diagrama_repository import (
     DiagramaRepository,
 )
-from app.modules.gestion_proyectos.domain.exceptions import ProyectoNoEncontradoException
+from app.modules.gestion_proyectos.domain.exceptions import (
+    ProyectoNoEncontradoException,
+    UsuarioBloqueadoException,
+)
+from app.modules.gestion_proyectos.domain.repositories.colaborador_proyecto_repository import (
+    ColaboradorProyectoRepository,
+)
 from app.modules.gestion_proyectos.domain.repositories.proyecto_repository import (
     ProyectoRepository,
 )
@@ -17,12 +23,28 @@ def obtener_diagrama_autorizado(
     diagrama_id: UUID,
     proyecto_repository: ProyectoRepository,
     diagrama_repository: DiagramaRepository,
+    colaborador_repository: ColaboradorProyectoRepository | None = None,
 ) -> Diagrama:
-    """Verifica el acceso Proyecto → Diagrama para rutas de clases."""
+    """Verifica el acceso Proyecto → Diagrama para el usuario autenticado (propietario o colaborador activo)."""
     diagrama = diagrama_repository.obtener_por_id(diagrama_id)
     if diagrama is None:
         raise DiagramaNoEncontradoException()
     proyecto = proyecto_repository.obtener_por_id(diagrama.id_proyecto)
-    if proyecto is None or proyecto.propietario_id != propietario_id:
+    if proyecto is None:
         raise ProyectoNoEncontradoException()
+
+    if proyecto.propietario_id != propietario_id:
+        if colaborador_repository is not None:
+            colaborador = colaborador_repository.obtener_por_proyecto_y_usuario(
+                proyecto.id, propietario_id
+            )
+            if colaborador is None:
+                raise ProyectoNoEncontradoException()
+            if colaborador.esta_bloqueado():
+                raise UsuarioBloqueadoException()
+            if not colaborador.esta_activo():
+                raise ProyectoNoEncontradoException()
+        else:
+            raise ProyectoNoEncontradoException()
+
     return diagrama

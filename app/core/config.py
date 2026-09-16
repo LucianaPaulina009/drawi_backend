@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     # Si está vacío (recomendado para empezar), la validación se desactiva.
     JWT_AUDIENCE: str = Field(default="", env="JWT_AUDIENCE")
 
+    # ── Colaboración / Invitaciones ───────────────────────────────────────────
+    # Duración configurable de las invitaciones en días (default: 7).
+    INVITACION_DURACION_DIAS: int = Field(
+        default=7, gt=0, env="INVITACION_DURACION_DIAS"
+    )
+
     # ── Better Auth: Configuración de Roles y JWKS ────────────────────────────
     # Si en el frontend tienes instalado el plugin de 'admin', déjalo en True.
     # Si NO usas el plugin de admin en Better Auth, cambia a False en tu .env:

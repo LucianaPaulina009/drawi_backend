@@ -101,6 +101,7 @@ def listar_proyectos(
             fecha_actualizacion=item.fecha_actualizacion,
             es_favorito=item.es_favorito,
             slug=item.slug,
+            propietario_id=item.propietario_id,
         )
         for item in resultado.items
     ]

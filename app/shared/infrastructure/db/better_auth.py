@@ -30,9 +30,8 @@ from sqlmodel import Field, SQLModel
 class BetterAuthUser(SQLModel, table=True):
     """
     Reflejo de la tabla `user` que genera Better Auth.
-    Solo para referencias de tipo — Alembic no la gestiona.
-    Los campos dependientes de plugins (role, banned, banReason, etc.)
-    se marcan como opcionales para ser compatibles con cualquier configuración.
+    Solo para referencias de tipo y lecturas de identidad/perfil — Alembic no la gestiona.
+    Solo incluye los campos base existentes de Better Auth.
     """
 
     __tablename__ = "user"  # type: ignore[assignment]
@@ -44,7 +43,3 @@ class BetterAuthUser(SQLModel, table=True):
     image: str | None = None
     createdAt: str | None = None
     updatedAt: str | None = None
-    role: str | None = None
-    banned: bool | None = None
-    banReason: str | None = None
-    banExpires: str | None = None

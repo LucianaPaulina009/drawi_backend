@@ -28,6 +28,9 @@ from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_clas
 from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_diagrama_repository import (
     SQLModelDiagramaRepository,
 )
+from app.modules.gestion_proyectos.infrastructure.persistence.repositories.sqlmodel_colaborador_proyecto_repository import (
+    SQLModelColaboradorProyectoRepository,
+)
 from app.modules.gestion_proyectos.infrastructure.persistence.repositories.sqlmodel_proyecto_repository import (
     SQLModelProyectoRepository,
 )
@@ -62,6 +65,7 @@ def _repositorios(session: DBSession):
         SQLModelDiagramaRepository(session),
         SQLModelClaseRepository(session),
         SQLModelAtributoRepository(session),
+        SQLModelColaboradorProyectoRepository(session),
     )
 
 
@@ -76,9 +80,9 @@ def listar_atributos(
     usuario: CurrentUser,
     session: DBSession,
 ) -> ListaAtributosRead:
-    proyecto_repo, diagrama_repo, clase_repo, atributo_repo = _repositorios(session)
+    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo = _repositorios(session)
     atributos = AtributoQueryHandler(
-        proyecto_repo, diagrama_repo, clase_repo, atributo_repo
+        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo
     ).listar(AtributoQuery(usuario.user_id, id_clase))
     return ListaAtributosRead(items=[_a_read(atributo) for atributo in atributos])
 
@@ -95,9 +99,9 @@ def obtener_atributo(
     usuario: CurrentUser,
     session: DBSession,
 ) -> AtributoRead:
-    proyecto_repo, diagrama_repo, clase_repo, atributo_repo = _repositorios(session)
+    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo = _repositorios(session)
     atributo = AtributoQueryHandler(
-        proyecto_repo, diagrama_repo, clase_repo, atributo_repo
+        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo
     ).obtener(AtributoQuery(usuario.user_id, id_clase, id_atributo))
     return _a_read(atributo)
 
@@ -115,9 +119,9 @@ def crear_atributo(
     session: DBSession,
     uow: UoWDep,
 ) -> AtributoRead:
-    proyecto_repo, diagrama_repo, clase_repo, atributo_repo = _repositorios(session)
+    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo = _repositorios(session)
     atributo = AtributoUseCase(
-        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow
+        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow, colaborador_repo
     ).crear(AtributoCommand(usuario.user_id, id_clase, datos.model_dump()))
     return _a_read(atributo)
 
@@ -136,9 +140,9 @@ def actualizar_atributo(
     session: DBSession,
     uow: UoWDep,
 ) -> AtributoRead:
-    proyecto_repo, diagrama_repo, clase_repo, atributo_repo = _repositorios(session)
+    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo = _repositorios(session)
     atributo = AtributoUseCase(
-        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow
+        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow, colaborador_repo
     ).actualizar(
         AtributoCommand(
             usuario.user_id,
@@ -162,8 +166,8 @@ def eliminar_atributo(
     session: DBSession,
     uow: UoWDep,
 ) -> Response:
-    proyecto_repo, diagrama_repo, clase_repo, atributo_repo = _repositorios(session)
+    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo = _repositorios(session)
     AtributoUseCase(
-        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow
+        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow, colaborador_repo
     ).eliminar(AtributoCommand(usuario.user_id, id_clase, {}, id_atributo))
     return Response(status_code=status.HTTP_204_NO_CONTENT)

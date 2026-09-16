@@ -1,11 +1,15 @@
-from __future__ import annotations
-
-from sqlalchemy import and_
+from sqlalchemy import and_, exists, or_
 from sqlmodel import Session, select
 
 from app.modules.gestion_proyectos.application.ports.readers.listado_proyectos_usuario_reader import (
     ItemProyectoUsuarioDTO,
     ListadoProyectosUsuarioReader,
+)
+from app.modules.gestion_proyectos.domain.value_objects.estado_colaborador import (
+    EstadoColaborador,
+)
+from app.modules.gestion_proyectos.infrastructure.persistence.models.colaborador_proyecto_model import (
+    ColaboradorProyectoModel,
 )
 from app.modules.gestion_proyectos.infrastructure.persistence.models.proyecto_favorito_model import (
     ProyectoFavoritoModel,
@@ -30,6 +34,18 @@ class SQLModelListadoProyectosUsuarioReader(ListadoProyectosUsuarioReader):
             ProyectoFavoritoModel.fecha_eliminacion.is_(None),
         )
 
+        condicion_acceso = or_(
+            ProyectoModel.propietario_id == usuario_id,
+            exists(
+                select(ColaboradorProyectoModel.id).where(
+                    ColaboradorProyectoModel.id_proyecto == ProyectoModel.id,
+                    ColaboradorProyectoModel.id_usuario == usuario_id,
+                    ColaboradorProyectoModel.estado == EstadoColaborador.ACTIVO.value,
+                    ColaboradorProyectoModel.fecha_eliminacion.is_(None),
+                )
+            ),
+        )
+
         sentencia = (
             select(
                 ProyectoModel,
@@ -40,7 +56,7 @@ class SQLModelListadoProyectosUsuarioReader(ListadoProyectosUsuarioReader):
                 condicion_favorito,
             )
             .where(
-                ProyectoModel.propietario_id == usuario_id,
+                condicion_acceso,
                 ProyectoModel.fecha_eliminacion.is_(None),
             )
             .order_by(ProyectoModel.fecha_actualizacion.desc())
@@ -60,6 +76,7 @@ class SQLModelListadoProyectosUsuarioReader(ListadoProyectosUsuarioReader):
                 fecha_actualizacion=fila[0].fecha_actualizacion,
                 es_favorito=bool(fila[1]),
                 slug=fila[0].slug,
+                propietario_id=fila[0].propietario_id,
             )
             for fila in filas
         ]

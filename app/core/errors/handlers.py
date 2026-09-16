@@ -6,6 +6,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.shared.domain.exceptions import (
     ConflictException,
     DomainException,
+    ForbiddenException,
+    GoneException,
     NotFoundException,
     ValidationException,
 )
@@ -26,6 +28,14 @@ def configurar_manejadores_excepciones(app: FastAPI) -> None:
     @app.exception_handler(ConflictException)
     async def manejar_conflicto(solicitud: Request, excepcion: ConflictException):
         return JSONResponse(status_code=409, content=formatear_error(excepcion.code, excepcion.message))
+
+    @app.exception_handler(ForbiddenException)
+    async def manejar_prohibido(solicitud: Request, excepcion: ForbiddenException):
+        return JSONResponse(status_code=403, content=formatear_error(excepcion.code, excepcion.message))
+
+    @app.exception_handler(GoneException)
+    async def manejar_recurso_expirado(solicitud: Request, excepcion: GoneException):
+        return JSONResponse(status_code=410, content=formatear_error(excepcion.code, excepcion.message))
 
     @app.exception_handler(ValidationException)
     async def manejar_validacion(solicitud: Request, excepcion: ValidationException):

@@ -10,6 +10,9 @@ from app.modules.diagramas.domain.repositories.atributo_repository import Atribu
 from app.modules.diagramas.domain.repositories.diagrama_repository import (
     DiagramaRepository,
 )
+from app.modules.gestion_proyectos.domain.repositories.colaborador_proyecto_repository import (
+    ColaboradorProyectoRepository,
+)
 from app.modules.gestion_proyectos.domain.repositories.proyecto_repository import (
     ProyectoRepository,
 )
@@ -31,12 +34,14 @@ class EliminarClaseUseCase:
         clase_repository: ClaseRepository,
         atributo_repository: AtributoRepository,
         uow: UnitOfWork,
+        colaborador_repository: ColaboradorProyectoRepository | None = None,
     ) -> None:
         self.proyecto_repository = proyecto_repository
         self.diagrama_repository = diagrama_repository
         self.clase_repository = clase_repository
         self.atributo_repository = atributo_repository
         self.uow = uow
+        self.colaborador_repository = colaborador_repository
 
     def execute(self, command: EliminarClaseCommand) -> None:
         obtener_diagrama_autorizado(
@@ -44,6 +49,7 @@ class EliminarClaseUseCase:
             diagrama_id=command.diagrama_id,
             proyecto_repository=self.proyecto_repository,
             diagrama_repository=self.diagrama_repository,
+            colaborador_repository=self.colaborador_repository,
         )
         clase = self.clase_repository.obtener_por_id(command.clase_id)
         if clase is None or clase.id_diagrama != command.diagrama_id:

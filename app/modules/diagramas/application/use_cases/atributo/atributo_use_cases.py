@@ -6,6 +6,9 @@ from app.modules.diagramas.domain.exceptions import ActualizacionAtributoVaciaEx
 from app.modules.diagramas.domain.repositories.atributo_repository import AtributoRepository
 from app.modules.diagramas.domain.repositories.clase_repository import ClaseRepository
 from app.modules.diagramas.domain.repositories.diagrama_repository import DiagramaRepository
+from app.modules.gestion_proyectos.domain.repositories.colaborador_proyecto_repository import (
+    ColaboradorProyectoRepository,
+)
 from app.modules.gestion_proyectos.domain.repositories.proyecto_repository import ProyectoRepository
 from app.shared.application.ports import UnitOfWork
 
@@ -13,7 +16,7 @@ from app.shared.application.ports import UnitOfWork
 class AtributoCommand:
     propietario_id:str; clase_id:UUID; datos:dict; atributo_id:UUID|None=None
 class AtributoUseCase:
-    def __init__(self,p:ProyectoRepository,d:DiagramaRepository,c:ClaseRepository,a:AtributoRepository,u:UnitOfWork): self.q=AtributoQueryHandler(p,d,c,a);self.a=a;self.u=u
+    def __init__(self,p:ProyectoRepository,d:DiagramaRepository,c:ClaseRepository,a:AtributoRepository,u:UnitOfWork,col:ColaboradorProyectoRepository|None=None): self.q=AtributoQueryHandler(p,d,c,a,col);self.a=a;self.u=u
     def crear(self,cmd:AtributoCommand)->Atributo:
         self.q.clase_autorizada(AtributoQuery(cmd.propietario_id,cmd.clase_id)); datos=dict(cmd.datos); orden=datos.pop("orden_de_posicion",None)
         if orden is None: orden=(self.a.listar_por_clase(cmd.clase_id)[-1].orden_de_posicion+1) if self.a.listar_por_clase(cmd.clase_id) else 1

@@ -24,7 +24,7 @@ from fastapi import Depends
 from sqlmodel import Session
 
 from app.core.database import get_session
-from app.core.security.auth import Admin, CurrentUser
+from app.core.security.auth import Admin, CurrentUser, OptionalUser
 from app.shared.domain.event_bus import EventBus
 from app.shared.infrastructure.event_bus_impl import InMemoryEventBus
 from app.shared.infrastructure.unit_of_work import SqlModelUnitOfWork
@@ -87,7 +87,9 @@ __all__ = [
     "get_event_bus",
     # Identities
     "CurrentUser",
+    "OptionalUser",
     "Admin",
     # UoW
     "UoWDep",
 ]
+

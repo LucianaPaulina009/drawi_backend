@@ -21,6 +21,12 @@ from app.modules.diagramas.infrastructure.persistence.models.diagrama_model impo
 )
 from app.modules.diagramas.infrastructure.persistence.models.clase_model import ClaseModel
 from app.modules.diagramas.infrastructure.persistence.models.atributo_model import AtributoModel
+from app.modules.gestion_proyectos.infrastructure.persistence.models.colaborador_proyecto_model import (
+    ColaboradorProyectoModel,
+)
+from app.modules.gestion_proyectos.infrastructure.persistence.models.invitacion_model import (
+    InvitacionModel,
+)
 from app.modules.gestion_proyectos.infrastructure.persistence.models.proyecto_favorito_model import (
     ProyectoFavoritoModel,
 )
@@ -28,4 +34,3 @@ from app.modules.gestion_proyectos.infrastructure.persistence.models.proyecto_mo
     ProyectoModel,
 )
 from app.shared.infrastructure.db.better_auth import BetterAuthUser
-

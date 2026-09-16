@@ -42,6 +42,9 @@ from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_diag
 from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_atributo_repository import (
     SQLModelAtributoRepository,
 )
+from app.modules.gestion_proyectos.infrastructure.persistence.repositories.sqlmodel_colaborador_proyecto_repository import (
+    SQLModelColaboradorProyectoRepository,
+)
 from app.modules.gestion_proyectos.infrastructure.persistence.repositories.sqlmodel_proyecto_repository import (
     SQLModelProyectoRepository,
 )
@@ -74,8 +77,9 @@ def listar_clases(
     proyecto_repo = SQLModelProyectoRepository(session)
     diagrama_repo = SQLModelDiagramaRepository(session)
     clase_repo = SQLModelClaseRepository(session)
+    colaborador_repo = SQLModelColaboradorProyectoRepository(session)
     clases = ListarClasesQueryHandler(
-        proyecto_repo, diagrama_repo, clase_repo
+        proyecto_repo, diagrama_repo, clase_repo, colaborador_repo
     ).execute(
         ListarClasesQuery(
             propietario_id=usuario.user_id,
@@ -101,11 +105,13 @@ def obtener_clase(
     diagrama_repo = SQLModelDiagramaRepository(session)
     clase_repo = SQLModelClaseRepository(session)
     atributo_repo = SQLModelAtributoRepository(session)
+    colaborador_repo = SQLModelColaboradorProyectoRepository(session)
     resultado = ObtenerClaseQueryHandler(
         proyecto_repo,
         diagrama_repo,
         clase_repo,
         atributo_repo,
+        colaborador_repo,
     ).execute(
         ObtenerClaseQuery(
             propietario_id=usuario.user_id,
@@ -138,7 +144,10 @@ def crear_clase(
     proyecto_repo = SQLModelProyectoRepository(session)
     diagrama_repo = SQLModelDiagramaRepository(session)
     clase_repo = SQLModelClaseRepository(session)
-    clase = CrearClaseUseCase(proyecto_repo, diagrama_repo, clase_repo, uow).execute(
+    colaborador_repo = SQLModelColaboradorProyectoRepository(session)
+    clase = CrearClaseUseCase(
+        proyecto_repo, diagrama_repo, clase_repo, uow, colaborador_repo
+    ).execute(
         CrearClaseCommand(
             propietario_id=usuario.user_id,
             diagrama_id=id_diagrama,
@@ -168,8 +177,9 @@ def actualizar_clase(
     proyecto_repo = SQLModelProyectoRepository(session)
     diagrama_repo = SQLModelDiagramaRepository(session)
     clase_repo = SQLModelClaseRepository(session)
+    colaborador_repo = SQLModelColaboradorProyectoRepository(session)
     clase = ActualizarClaseUseCase(
-        proyecto_repo, diagrama_repo, clase_repo, uow
+        proyecto_repo, diagrama_repo, clase_repo, uow, colaborador_repo
     ).execute(
         ActualizarClaseCommand(
             propietario_id=usuario.user_id,
@@ -200,8 +210,9 @@ def eliminar_clase(
     diagrama_repo = SQLModelDiagramaRepository(session)
     clase_repo = SQLModelClaseRepository(session)
     atributo_repo = SQLModelAtributoRepository(session)
+    colaborador_repo = SQLModelColaboradorProyectoRepository(session)
     EliminarClaseUseCase(
-        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow
+        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow, colaborador_repo
     ).execute(
         EliminarClaseCommand(
             propietario_id=usuario.user_id,

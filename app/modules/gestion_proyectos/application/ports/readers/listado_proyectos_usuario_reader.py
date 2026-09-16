@@ -17,6 +17,7 @@ class ItemProyectoUsuarioDTO:
     fecha_actualizacion: datetime
     es_favorito: bool
     slug: str
+    propietario_id: str = ""
 
 
 class ListadoProyectosUsuarioReader(ABC):
