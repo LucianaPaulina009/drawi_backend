@@ -12,14 +12,16 @@ from app.modules.diagramas.infrastructure.api.schemas.atributo_schemas import At
 
 
 class CrearClaseRequest(BaseModel):
-    nombre: str
+    id_clase: UUID | None = None
+    id_atributo_inicial: UUID | None = None
+    nombre: str = "Tabla"
     posicion_x: float
     posicion_y: float
-    ancho: float = Field(gt=0)
+    ancho: float = Field(default=280.0, gt=0)
 
     @model_validator(mode="after")
     def validar_nombre(self) -> CrearClaseRequest:
-        if not self.nombre.strip():
+        if self.nombre is not None and not self.nombre.strip():
             raise NombreClaseInvalidoException()
         return self
 

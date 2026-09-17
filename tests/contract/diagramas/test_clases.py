@@ -17,6 +17,12 @@ def test_contrato_endpoints_clases(client):
     assert creado.status_code == 201
     clase = creado.json()
     assert clase["id_diagrama"] == diagrama_id
+    assert len(clase["atributos"]) == 1
+    assert clase["atributos"][0]["nombre"] == "id"
+    assert clase["atributos"][0]["tipo_dato"] == "integer"
+    assert clase["atributos"][0]["es_llave_primaria"] is True
+    assert clase["atributos"][0]["permite_nulo"] is False
+    assert clase["atributos"][0]["orden_de_posicion"] == 1
 
     listado = client.get(f"/api/diagramas/{diagrama_id}/clases")
     assert listado.status_code == 200
@@ -24,7 +30,8 @@ def test_contrato_endpoints_clases(client):
 
     detalle = client.get(f"/api/diagramas/{diagrama_id}/clases/{clase['id']}")
     assert detalle.status_code == 200
-    assert detalle.json()["atributos"] == []
+    assert len(detalle.json()["atributos"]) == 1
+    assert detalle.json()["atributos"][0]["nombre"] == "id"
 
     actualizado = client.patch(
         f"/api/diagramas/{diagrama_id}/clases/{clase['id']}",
@@ -42,3 +49,4 @@ def test_contrato_endpoints_clases(client):
 def test_contrato_clases_sin_autenticacion(unauthenticated_client):
     response = unauthenticated_client.get("/api/diagramas/00000000-0000-0000-0000-000000000001/clases")
     assert response.status_code == 401
+

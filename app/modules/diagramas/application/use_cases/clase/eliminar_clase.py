@@ -50,6 +50,7 @@ class EliminarClaseUseCase:
             proyecto_repository=self.proyecto_repository,
             diagrama_repository=self.diagrama_repository,
             colaborador_repository=self.colaborador_repository,
+            exigir_edicion=True,
         )
         clase = self.clase_repository.obtener_por_id(command.clase_id)
         if clase is None or clase.id_diagrama != command.diagrama_id:

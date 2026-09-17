@@ -37,7 +37,7 @@ class AtributoQueryHandler:
         self.atributo_repository = atributo_repository
         self.colaborador_repository = colaborador_repository
 
-    def clase_autorizada(self, query: AtributoQuery):
+    def clase_autorizada(self, query: AtributoQuery, exigir_edicion: bool = False):
         clase = self.clase_repository.obtener_por_id(query.clase_id)
         if clase is None:
             raise ClaseNoEncontradaException()
@@ -47,6 +47,7 @@ class AtributoQueryHandler:
             proyecto_repository=self.proyecto_repository,
             diagrama_repository=self.diagrama_repository,
             colaborador_repository=self.colaborador_repository,
+            exigir_edicion=exigir_edicion,
         )
         return clase
 
@@ -54,8 +55,8 @@ class AtributoQueryHandler:
     def _dto(atributo) -> AtributoDTO:
         return AtributoDTO(atributo.id, atributo.id_clase, atributo.tipo_dato, atributo.nombre, atributo.longitud, atributo.precision, atributo.escala, atributo.es_llave_primaria, atributo.permite_nulo, atributo.es_unico, atributo.valor_por_defecto, atributo.orden_de_posicion)
 
-    def obtener_entidad(self, query: AtributoQuery):
-        self.clase_autorizada(query)
+    def obtener_entidad(self, query: AtributoQuery, exigir_edicion: bool = False):
+        self.clase_autorizada(query, exigir_edicion=exigir_edicion)
         atributo = self.atributo_repository.obtener_por_id(query.atributo_id)
         if atributo is None or atributo.id_clase != query.clase_id:
             raise AtributoNoEncontradoException()

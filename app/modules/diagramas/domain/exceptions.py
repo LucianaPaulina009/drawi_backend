@@ -88,3 +88,14 @@ class ActualizacionAtributoVaciaException(ValidationException):
 class AtributoNoEncontradoException(NotFoundException):
     code = "ATRIBUTO_NO_ENCONTRADO"
     message = "El atributo solicitado no existe o no pertenece a la clase indicada."
+
+
+class ClaseYaExisteException(ConflictException):
+    code = "CLASE_YA_EXISTE"
+    message = "Ya existe una clase con el identificador proporcionado."
+
+
+class AtributoYaExisteException(ConflictException):
+    code = "ATRIBUTO_YA_EXISTE"
+    message = "Ya existe un atributo con el identificador proporcionado."
+

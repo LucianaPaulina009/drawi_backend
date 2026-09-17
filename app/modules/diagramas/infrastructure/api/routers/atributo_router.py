@@ -122,7 +122,14 @@ def crear_atributo(
     proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo = _repositorios(session)
     atributo = AtributoUseCase(
         proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow, colaborador_repo
-    ).crear(AtributoCommand(usuario.user_id, id_clase, datos.model_dump()))
+    ).crear(
+        AtributoCommand(
+            usuario.user_id,
+            id_clase,
+            datos.model_dump(exclude={"id_atributo"}),
+            atributo_id=datos.id_atributo,
+        )
+    )
     return _a_read(atributo)
 
 

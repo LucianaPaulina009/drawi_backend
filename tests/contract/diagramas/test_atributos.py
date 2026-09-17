@@ -21,11 +21,11 @@ def test_contrato_endpoints_atributos(client):
     assert creado.status_code == 201
     atributo = creado.json()
     assert atributo["id_clase"] == clase_id
-    assert atributo["orden_de_posicion"] == 1
+    assert atributo["orden_de_posicion"] == 2
 
     listado = client.get(f"/api/clases/{clase_id}/atributos")
     assert listado.status_code == 200
-    assert listado.json()["items"][0]["id"] == atributo["id"]
+    assert any(item["id"] == atributo["id"] for item in listado.json()["items"])
 
     detalle = client.get(f"/api/clases/{clase_id}/atributos/{atributo['id']}")
     assert detalle.status_code == 200
@@ -54,7 +54,7 @@ def test_contrato_rechaza_orden_atributo_fuera_de_secuencia(client):
     clase_id = _crear_clase(client)
     respuesta = client.post(
         f"/api/clases/{clase_id}/atributos",
-        json={"tipo_dato": "varchar", "nombre": "correo", "longitud": 120, "orden_de_posicion": 2},
+        json={"tipo_dato": "varchar", "nombre": "correo", "longitud": 120, "orden_de_posicion": 5},
     )
 
     assert respuesta.status_code == 409

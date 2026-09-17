@@ -128,9 +128,12 @@ def obtener_clase(
     )
 
 
+from app.modules.diagramas.infrastructure.api.schemas.atributo_schemas import AtributoRead
+
+
 @router.post(
     "/{id_diagrama}/clases",
-    response_model=ClaseRead,
+    response_model=ClaseDetalleRead,
     status_code=status.HTTP_201_CREATED,
     summary="Crear una clase en un diagrama autorizado",
 )
@@ -140,13 +143,19 @@ def crear_clase(
     usuario: CurrentUser,
     session: DBSession,
     uow: UoWDep,
-) -> ClaseRead:
+) -> ClaseDetalleRead:
     proyecto_repo = SQLModelProyectoRepository(session)
     diagrama_repo = SQLModelDiagramaRepository(session)
     clase_repo = SQLModelClaseRepository(session)
+    atributo_repo = SQLModelAtributoRepository(session)
     colaborador_repo = SQLModelColaboradorProyectoRepository(session)
-    clase = CrearClaseUseCase(
-        proyecto_repo, diagrama_repo, clase_repo, uow, colaborador_repo
+    clase, atributos = CrearClaseUseCase(
+        proyecto_repo,
+        diagrama_repo,
+        clase_repo,
+        atributo_repo,
+        uow,
+        colaborador_repo,
     ).execute(
         CrearClaseCommand(
             propietario_id=usuario.user_id,
@@ -155,9 +164,30 @@ def crear_clase(
             posicion_x=datos.posicion_x,
             posicion_y=datos.posicion_y,
             ancho=datos.ancho,
+            id_clase=datos.id_clase,
+            id_atributo_inicial=datos.id_atributo_inicial,
         )
     )
-    return _a_read(clase)
+    return ClaseDetalleRead(
+        **_a_read(clase).model_dump(),
+        atributos=[
+            AtributoRead(
+                id=a.id,
+                id_clase=a.id_clase,
+                tipo_dato=a.tipo_dato,
+                nombre=a.nombre,
+                longitud=a.longitud,
+                precision=a.precision,
+                escala=a.escala,
+                es_llave_primaria=a.es_llave_primaria,
+                permite_nulo=a.permite_nulo,
+                es_unico=a.es_unico,
+                valor_por_defecto=a.valor_por_defecto,
+                orden_de_posicion=a.orden_de_posicion,
+            )
+            for a in atributos
+        ],
+    )
 
 
 @router.patch(

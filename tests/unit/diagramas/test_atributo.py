@@ -65,3 +65,44 @@ def test_nombre_atributo_vacio_es_invalido(nombre: str):
             nombre=nombre,
             orden_de_posicion=1,
         )
+
+
+def test_tipo_dato_enum_invalido_lanza_excepcion():
+    from app.modules.diagramas.domain.exceptions import TipoDatoInvalidoException
+
+    with pytest.raises(TipoDatoInvalidoException):
+        Atributo.crear(
+            id_clase=UUID(int=1),
+            tipo_dato="tipo_inventado",
+            nombre="campo",
+            orden_de_posicion=1,
+        )
+
+
+def test_llave_primaria_no_permite_nulo():
+    # Intentar actualizar PK a permite_nulo=True debe fallar
+    atributo = Atributo.crear(
+        id_clase=UUID(int=1),
+        tipo_dato="integer",
+        nombre="id",
+        orden_de_posicion=1,
+        es_llave_primaria=True,
+    )
+    assert atributo.es_llave_primaria is True
+    assert atributo.permite_nulo is False
+
+    with pytest.raises(ConfiguracionAtributoInvalidaException):
+        atributo.actualizar(permite_nulo=True)
+
+
+def test_atributo_crear_con_id_personalizado():
+    custom_id = UUID("11111111-2222-3333-4444-555555555555")
+    atributo = Atributo.crear(
+        id=custom_id,
+        id_clase=UUID(int=1),
+        tipo_dato="integer",
+        nombre="id",
+        orden_de_posicion=1,
+    )
+    assert atributo.id == custom_id
+

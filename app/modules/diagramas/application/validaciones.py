@@ -24,6 +24,7 @@ def obtener_diagrama_autorizado(
     proyecto_repository: ProyectoRepository,
     diagrama_repository: DiagramaRepository,
     colaborador_repository: ColaboradorProyectoRepository | None = None,
+    exigir_edicion: bool = False,
 ) -> Diagrama:
     """Verifica el acceso Proyecto → Diagrama para el usuario autenticado (propietario o colaborador activo)."""
     diagrama = diagrama_repository.obtener_por_id(diagrama_id)
@@ -44,7 +45,12 @@ def obtener_diagrama_autorizado(
                 raise UsuarioBloqueadoException()
             if not colaborador.esta_activo():
                 raise ProyectoNoEncontradoException()
+            if exigir_edicion and not colaborador.rol.puede_editar():
+                raise NoAutorizadoProyectoException(
+                    "No tienes permisos de edición en este proyecto."
+                )
         else:
             raise ProyectoNoEncontradoException()
 
     return diagrama
+
