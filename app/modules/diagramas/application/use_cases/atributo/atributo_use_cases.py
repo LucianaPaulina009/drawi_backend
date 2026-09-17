@@ -2,11 +2,15 @@ from dataclasses import dataclass
 from uuid import UUID
 from app.modules.diagramas.application.queries.atributo.atributo_handlers import AtributoQuery,AtributoQueryHandler
 from app.modules.diagramas.domain.entities.atributo import Atributo,NO_DEFINIDO
-from app.modules.diagramas.domain.exceptions import ActualizacionAtributoVaciaException, OrdenAtributoFueraDeSecuenciaException
+from app.modules.diagramas.domain.exceptions import (
+    ActualizacionAtributoVaciaException,
+    AtributoYaExisteException,
+    OrdenAtributoFueraDeSecuenciaException,
+)
 from app.modules.diagramas.domain.repositories.atributo_repository import AtributoRepository
 from app.modules.diagramas.domain.repositories.clase_repository import ClaseRepository
 from app.modules.diagramas.domain.repositories.diagrama_repository import DiagramaRepository
-from app.modules.gestion_proyectos.domain.repositories.colaborador_proyecto_repository import (
+from app.modules.gestion_colaboradores.domain.repositories.colaborador_proyecto_repository import (
     ColaboradorProyectoRepository,
 )
 from app.modules.gestion_proyectos.domain.repositories.proyecto_repository import ProyectoRepository

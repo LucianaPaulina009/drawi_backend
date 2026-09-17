@@ -42,7 +42,7 @@ from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_diag
 from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_atributo_repository import (
     SQLModelAtributoRepository,
 )
-from app.modules.gestion_proyectos.infrastructure.persistence.repositories.sqlmodel_colaborador_proyecto_repository import (
+from app.modules.gestion_colaboradores.infrastructure.persistence.repositories.sqlmodel_colaborador_proyecto_repository import (
     SQLModelColaboradorProyectoRepository,
 )
 from app.modules.gestion_proyectos.infrastructure.persistence.repositories.sqlmodel_proyecto_repository import (

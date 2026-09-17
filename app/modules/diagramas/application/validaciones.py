@@ -5,12 +5,15 @@ from app.modules.diagramas.domain.exceptions import DiagramaNoEncontradoExceptio
 from app.modules.diagramas.domain.repositories.diagrama_repository import (
     DiagramaRepository,
 )
-from app.modules.gestion_proyectos.domain.exceptions import (
-    ProyectoNoEncontradoException,
+from app.modules.gestion_colaboradores.domain.exceptions import (
+    NoAutorizadoProyectoException,
     UsuarioBloqueadoException,
 )
-from app.modules.gestion_proyectos.domain.repositories.colaborador_proyecto_repository import (
+from app.modules.gestion_colaboradores.domain.repositories.colaborador_proyecto_repository import (
     ColaboradorProyectoRepository,
+)
+from app.modules.gestion_proyectos.domain.exceptions import (
+    ProyectoNoEncontradoException,
 )
 from app.modules.gestion_proyectos.domain.repositories.proyecto_repository import (
     ProyectoRepository,

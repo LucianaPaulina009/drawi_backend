@@ -121,10 +121,10 @@ def health_check():
 from app.modules.gestion_proyectos.infrastructure.api.routers.proyecto_router import (
     router as proyecto_router,
 )
-from app.modules.gestion_proyectos.infrastructure.api.routers.invitacion_router import (
+from app.modules.gestion_colaboradores.infrastructure.api.routers.invitacion_router import (
     router as invitacion_router,
 )
-from app.modules.gestion_proyectos.infrastructure.api.routers.colaborador_router import (
+from app.modules.gestion_colaboradores.infrastructure.api.routers.colaborador_router import (
     router as colaborador_router,
 )
 from app.modules.diagramas.infrastructure.api.routers.diagrama_router import (

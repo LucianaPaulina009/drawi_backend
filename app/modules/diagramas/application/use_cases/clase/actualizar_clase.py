@@ -13,7 +13,7 @@ from app.modules.diagramas.domain.repositories.clase_repository import ClaseRepo
 from app.modules.diagramas.domain.repositories.diagrama_repository import (
     DiagramaRepository,
 )
-from app.modules.gestion_proyectos.domain.repositories.colaborador_proyecto_repository import (
+from app.modules.gestion_colaboradores.domain.repositories.colaborador_proyecto_repository import (
     ColaboradorProyectoRepository,
 )
 from app.modules.gestion_proyectos.domain.repositories.proyecto_repository import (

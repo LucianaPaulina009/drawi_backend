@@ -5,10 +5,10 @@ from app.modules.gestion_proyectos.application.ports.readers.listado_proyectos_u
     ItemProyectoUsuarioDTO,
     ListadoProyectosUsuarioReader,
 )
-from app.modules.gestion_proyectos.domain.value_objects.estado_colaborador import (
+from app.modules.gestion_colaboradores.domain.value_objects.estado_colaborador import (
     EstadoColaborador,
 )
-from app.modules.gestion_proyectos.infrastructure.persistence.models.colaborador_proyecto_model import (
+from app.modules.gestion_colaboradores.infrastructure.persistence.models.colaborador_proyecto_model import (
     ColaboradorProyectoModel,
 )
 from app.modules.gestion_proyectos.infrastructure.persistence.models.proyecto_favorito_model import (

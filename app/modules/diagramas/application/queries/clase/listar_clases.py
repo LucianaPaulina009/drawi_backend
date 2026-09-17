@@ -7,7 +7,7 @@ from app.modules.diagramas.application.queries.dtos import ClaseDTO
 from app.modules.diagramas.application.validaciones import obtener_diagrama_autorizado
 from app.modules.diagramas.domain.repositories.clase_repository import ClaseRepository
 from app.modules.diagramas.domain.repositories.diagrama_repository import DiagramaRepository
-from app.modules.gestion_proyectos.domain.repositories.colaborador_proyecto_repository import (
+from app.modules.gestion_colaboradores.domain.repositories.colaborador_proyecto_repository import (
     ColaboradorProyectoRepository,
 )
 from app.modules.gestion_proyectos.domain.repositories.proyecto_repository import ProyectoRepository
