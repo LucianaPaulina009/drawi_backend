@@ -19,7 +19,7 @@ class SQLModelAtributoRepository(AtributoRepository):
     def guardar(self, a: Atributo) -> None:
         m=self.bd.exec(select(AtributoModel).where(AtributoModel.id==a.id)).first()
         if not m: self.bd.add(AtributoMapper.a_modelo(a)); return
-        for campo in ("tipo_dato","nombre","longitud","precision","escala","es_llave_primaria","permite_nulo","es_unico","valor_por_defecto","orden_de_posicion"): setattr(m,campo,getattr(a,campo))
+        for campo in ("tipo_dato","nombre","longitud","precision","escala","es_llave_primaria","permite_nulo","es_unico","valor_por_defecto","orden_de_posicion","procedencia"): setattr(m,campo,getattr(a,campo))
         m.fecha_actualizacion=ahora_utc(); self.bd.add(m)
     def guardar_varios(self, atributos: list[Atributo]) -> None:
         # Libera los órdenes actuales antes de escribir el nuevo orden para no

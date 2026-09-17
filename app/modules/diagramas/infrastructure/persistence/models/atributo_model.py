@@ -18,3 +18,4 @@ class AtributoModel(BaseModel, table=True):
     es_unico: bool = Field(default=False, nullable=False)
     valor_por_defecto: str | None = Field(default=None, nullable=True)
     orden_de_posicion: int = Field(nullable=False)
+    procedencia: str = Field(default="manual", nullable=False)

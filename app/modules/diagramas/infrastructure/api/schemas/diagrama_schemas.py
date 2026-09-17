@@ -7,6 +7,9 @@ from app.modules.diagramas.domain.exceptions import (
     NombreDiagramaInvalidoException,
 )
 from app.modules.diagramas.infrastructure.api.schemas.atributo_schemas import AtributoRead
+from app.modules.diagramas.infrastructure.api.schemas.relacion_schemas import (
+    RelacionDetalleRead,
+)
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -55,3 +58,5 @@ class ClaseEnDiagramaRead(BaseModel):
 
 class DiagramaDetalleRead(DiagramaRead):
     clases: list[ClaseEnDiagramaRead] = Field(default_factory=list)
+    relaciones: list[RelacionDetalleRead] = Field(default_factory=list)
+

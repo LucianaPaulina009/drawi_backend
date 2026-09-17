@@ -28,6 +28,12 @@ from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_clas
 from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_diagrama_repository import (
     SQLModelDiagramaRepository,
 )
+from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_referencia_fk_repository import (
+    SQLModelReferenciaFKRepository,
+)
+from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_relacion_repository import (
+    SQLModelRelacionRepository,
+)
 from app.modules.gestion_colaboradores.infrastructure.persistence.repositories.sqlmodel_colaborador_proyecto_repository import (
     SQLModelColaboradorProyectoRepository,
 )
@@ -54,6 +60,7 @@ def _a_read(atributo) -> AtributoRead:
         es_unico=atributo.es_unico,
         valor_por_defecto=atributo.valor_por_defecto,
         orden_de_posicion=atributo.orden_de_posicion,
+        procedencia=atributo.procedencia,
     )
 
 
@@ -66,7 +73,10 @@ def _repositorios(session: DBSession):
         SQLModelClaseRepository(session),
         SQLModelAtributoRepository(session),
         SQLModelColaboradorProyectoRepository(session),
+        SQLModelReferenciaFKRepository(session),
+        SQLModelRelacionRepository(session),
     )
+
 
 
 @router.get(
@@ -80,7 +90,7 @@ def listar_atributos(
     usuario: CurrentUser,
     session: DBSession,
 ) -> ListaAtributosRead:
-    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo = _repositorios(session)
+    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo, _, _ = _repositorios(session)
     atributos = AtributoQueryHandler(
         proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo
     ).listar(AtributoQuery(usuario.user_id, id_clase))
@@ -99,11 +109,12 @@ def obtener_atributo(
     usuario: CurrentUser,
     session: DBSession,
 ) -> AtributoRead:
-    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo = _repositorios(session)
+    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo, _, _ = _repositorios(session)
     atributo = AtributoQueryHandler(
         proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo
     ).obtener(AtributoQuery(usuario.user_id, id_clase, id_atributo))
     return _a_read(atributo)
+
 
 
 @router.post(
@@ -119,9 +130,9 @@ def crear_atributo(
     session: DBSession,
     uow: UoWDep,
 ) -> AtributoRead:
-    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo = _repositorios(session)
+    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo, referencia_fk_repo, relacion_repo = _repositorios(session)
     atributo = AtributoUseCase(
-        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow, colaborador_repo
+        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow, colaborador_repo, referencia_fk_repo, relacion_repo
     ).crear(
         AtributoCommand(
             usuario.user_id,
@@ -147,9 +158,9 @@ def actualizar_atributo(
     session: DBSession,
     uow: UoWDep,
 ) -> AtributoRead:
-    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo = _repositorios(session)
+    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo, referencia_fk_repo, relacion_repo = _repositorios(session)
     atributo = AtributoUseCase(
-        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow, colaborador_repo
+        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow, colaborador_repo, referencia_fk_repo, relacion_repo
     ).actualizar(
         AtributoCommand(
             usuario.user_id,
@@ -173,8 +184,8 @@ def eliminar_atributo(
     session: DBSession,
     uow: UoWDep,
 ) -> Response:
-    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo = _repositorios(session)
+    proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo, referencia_fk_repo, relacion_repo = _repositorios(session)
     AtributoUseCase(
-        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow, colaborador_repo
+        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow, colaborador_repo, referencia_fk_repo, relacion_repo
     ).eliminar(AtributoCommand(usuario.user_id, id_clase, {}, id_atributo))
     return Response(status_code=status.HTTP_204_NO_CONTENT)

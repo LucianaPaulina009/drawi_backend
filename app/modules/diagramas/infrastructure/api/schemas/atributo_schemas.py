@@ -44,6 +44,7 @@ class AtributoRead(BaseModel):
     es_unico: bool
     valor_por_defecto: str | None
     orden_de_posicion: int
+    procedencia: str
 
 
 class ListaAtributosRead(BaseModel):

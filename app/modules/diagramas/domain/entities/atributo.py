@@ -8,6 +8,7 @@ from app.modules.diagramas.domain.exceptions import (
     OrdenAtributoInvalidoException,
 )
 from app.modules.diagramas.domain.value_objects.tipo_dato import TipoDato
+from app.modules.diagramas.domain.value_objects.procedencia_atributo import ProcedenciaAtributo
 
 NO_DEFINIDO = object()
 
@@ -30,6 +31,7 @@ class Atributo:
         es_unico: bool,
         valor_por_defecto: str | None,
         orden_de_posicion: int,
+        procedencia: str | ProcedenciaAtributo = ProcedenciaAtributo.MANUAL,
     ) -> None:
         self.id = id
         self.id_clase = id_clase
@@ -47,6 +49,7 @@ class Atributo:
         self.es_unico = bool(es_unico)
         self.valor_por_defecto = valor_por_defecto
         self.orden_de_posicion = self.validar_orden(orden_de_posicion)
+        self.procedencia = ProcedenciaAtributo.validar(procedencia).value
 
     @classmethod
     def crear(
@@ -64,6 +67,7 @@ class Atributo:
         permite_nulo: bool = True,
         es_unico: bool = False,
         valor_por_defecto: str | None = None,
+        procedencia: str | ProcedenciaAtributo = ProcedenciaAtributo.MANUAL,
     ) -> Atributo:
         if es_llave_primaria and permite_nulo is True:
             # Si se crea como PK y no se configuró explícitamente permite_nulo en False,
@@ -84,6 +88,7 @@ class Atributo:
             es_unico=es_unico,
             valor_por_defecto=valor_por_defecto,
             orden_de_posicion=orden_de_posicion,
+            procedencia=procedencia,
         )
 
     def actualizar(
@@ -168,4 +173,3 @@ class Atributo:
     ) -> tuple[int | None, int | None, int | None]:
         enum_tipo = TipoDato.from_valor(tipo)
         return enum_tipo.normalizar_configuracion(longitud, precision, escala)
-

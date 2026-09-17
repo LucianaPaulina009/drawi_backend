@@ -18,6 +18,7 @@ from app.modules.diagramas.domain.repositories.diagrama_repository import (
     DiagramaRepository,
 )
 from app.modules.diagramas.domain.value_objects.tipo_dato import TipoDato
+from app.modules.diagramas.domain.value_objects.procedencia_atributo import ProcedenciaAtributo
 from app.modules.gestion_colaboradores.domain.repositories.colaborador_proyecto_repository import (
     ColaboradorProyectoRepository,
 )
@@ -91,8 +92,8 @@ class CrearClaseUseCase:
             es_llave_primaria=True,
             permite_nulo=False,
             es_unico=False,
+            procedencia=ProcedenciaAtributo.SISTEMA_CLASE,
         )
         self.atributo_repository.guardar(atributo_inicial)
         self.uow.commit()
         return clase, [atributo_inicial]
-

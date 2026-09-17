@@ -184,6 +184,7 @@ def crear_clase(
                 es_unico=a.es_unico,
                 valor_por_defecto=a.valor_por_defecto,
                 orden_de_posicion=a.orden_de_posicion,
+                procedencia=a.procedencia,
             )
             for a in atributos
         ],
@@ -224,6 +225,14 @@ def actualizar_clase(
     return _a_read(clase)
 
 
+from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_relacion_repository import (
+    SQLModelRelacionRepository,
+)
+from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_referencia_fk_repository import (
+    SQLModelReferenciaFKRepository,
+)
+
+
 @router.delete(
     "/{id_diagrama}/clases/{id_clase}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -241,8 +250,18 @@ def eliminar_clase(
     clase_repo = SQLModelClaseRepository(session)
     atributo_repo = SQLModelAtributoRepository(session)
     colaborador_repo = SQLModelColaboradorProyectoRepository(session)
+    relacion_repo = SQLModelRelacionRepository(session)
+    referencia_fk_repo = SQLModelReferenciaFKRepository(session)
+
     EliminarClaseUseCase(
-        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow, colaborador_repo
+        proyecto_repo,
+        diagrama_repo,
+        clase_repo,
+        atributo_repo,
+        uow,
+        colaborador_repo,
+        relacion_repo,
+        referencia_fk_repo,
     ).execute(
         EliminarClaseCommand(
             propietario_id=usuario.user_id,

@@ -32,6 +32,12 @@ from app.modules.diagramas.infrastructure.api.schemas.diagrama_schemas import (
     DiagramaRead,
     ListaDiagramasRead,
 )
+from app.modules.diagramas.infrastructure.api.schemas.referencia_fk_schemas import (
+    ReferenciaFKRead,
+)
+from app.modules.diagramas.infrastructure.api.schemas.relacion_schemas import (
+    RelacionDetalleRead,
+)
 from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_diagrama_repository import (
     SQLModelDiagramaRepository,
 )
@@ -40,6 +46,12 @@ from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_clas
 )
 from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_atributo_repository import (
     SQLModelAtributoRepository,
+)
+from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_referencia_fk_repository import (
+    SQLModelReferenciaFKRepository,
+)
+from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_relacion_repository import (
+    SQLModelRelacionRepository,
 )
 from app.modules.gestion_colaboradores.infrastructure.persistence.repositories.sqlmodel_colaborador_proyecto_repository import (
     SQLModelColaboradorProyectoRepository,
@@ -103,8 +115,17 @@ def obtener_diagrama(
     clase_repo = SQLModelClaseRepository(session)
     atributo_repo = SQLModelAtributoRepository(session)
     colaborador_repo = SQLModelColaboradorProyectoRepository(session)
+    relacion_repo = SQLModelRelacionRepository(session)
+    referencia_fk_repo = SQLModelReferenciaFKRepository(session)
+
     resultado = ObtenerDiagramaCompletoQueryHandler(
-        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo
+        proyecto_repo,
+        diagrama_repo,
+        clase_repo,
+        atributo_repo,
+        colaborador_repo,
+        relacion_repo,
+        referencia_fk_repo,
     ).execute(
         ObtenerDiagramaQuery(
             usuario_id=usuario.user_id,
@@ -125,6 +146,31 @@ def obtener_diagrama(
                 atributos=[asdict(atributo) for atributo in clase.atributos],
             )
             for clase in resultado.clases
+        ],
+        relaciones=[
+            RelacionDetalleRead(
+                id=rel.id,
+                id_diagrama=rel.id_diagrama,
+                id_clase_origen=rel.id_clase_origen,
+                id_clase_destino=rel.id_clase_destino,
+                tipo_relacion=rel.tipo_relacion,
+                cardinalidad_origen=rel.cardinalidad_origen,
+                cardinalidad_destino=rel.cardinalidad_destino,
+                conector_origen=rel.conector_origen,
+                conector_destino=rel.conector_destino,
+                referencias_fk=[
+                    ReferenciaFKRead(
+                        id=rfk.id,
+                        id_relacion=rfk.id_relacion,
+                        id_atributo_fk=rfk.id_atributo_fk,
+                        id_atributo_referenciado=rfk.id_atributo_referenciado,
+                        on_delete=rfk.on_delete,
+                        on_update=rfk.on_update,
+                    )
+                    for rfk in rel.referencias_fk
+                ],
+            )
+            for rel in resultado.relaciones
         ],
     )
 
@@ -197,8 +243,17 @@ def eliminar_diagrama(
     diagrama_repo = SQLModelDiagramaRepository(session)
     clase_repo = SQLModelClaseRepository(session)
     atributo_repo = SQLModelAtributoRepository(session)
+    relacion_repo = SQLModelRelacionRepository(session)
+    referencia_fk_repo = SQLModelReferenciaFKRepository(session)
+
     EliminarDiagramaUseCase(
-        proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow
+        proyecto_repo,
+        diagrama_repo,
+        clase_repo,
+        atributo_repo,
+        uow,
+        relacion_repo,
+        referencia_fk_repo,
     ).execute(
         EliminarDiagramaCommand(
             propietario_id=usuario.user_id,
@@ -207,3 +262,4 @@ def eliminar_diagrama(
         )
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+

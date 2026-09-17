@@ -70,6 +70,11 @@ class ConfiguracionAtributoInvalidaException(ValidationException):
     message = "La configuración del atributo no corresponde con su tipo de dato."
 
 
+class ProcedenciaAtributoInvalidaException(ValidationException):
+    code = "PROCEDENCIA_ATRIBUTO_INVALIDA"
+    message = "La procedencia del atributo no es válida."
+
+
 class OrdenAtributoInvalidoException(ValidationException):
     code = "ORDEN_ATRIBUTO_INVALIDO"
     message = "El orden de posición debe ser un entero positivo."
@@ -98,4 +103,84 @@ class ClaseYaExisteException(ConflictException):
 class AtributoYaExisteException(ConflictException):
     code = "ATRIBUTO_YA_EXISTE"
     message = "Ya existe un atributo con el identificador proporcionado."
+
+
+class RelacionNoEncontradaException(NotFoundException):
+    code = "RELACION_NO_ENCONTRADA"
+    message = "La relación solicitada no existe o no pertenece al diagrama indicado."
+
+
+class RelacionYaExisteException(ConflictException):
+    code = "RELACION_YA_EXISTE"
+    message = "Ya existe una relación con el identificador proporcionado."
+
+
+class TipoRelacionInvalidoException(ValidationException):
+    code = "TIPO_RELACION_INVALIDO"
+    message = "El tipo de relación no es válido."
+
+
+class CardinalidadInvalidaException(ValidationException):
+    code = "CARDINALIDAD_INVALIDA"
+    message = "La cardinalidad no tiene un formato válido."
+
+
+class ConectorInvalidoException(ValidationException):
+    code = "CONECTOR_INVALIDO"
+    message = "El conector especificado no es válido."
+
+
+class ActualizacionRelacionVaciaException(ValidationException):
+    code = "ACTUALIZACION_RELACION_VACIA"
+    message = "Debe proporcionar al menos un campo para actualizar la relación."
+
+
+class ReferenciaFKNoEncontradaException(NotFoundException):
+    code = "REFERENCIA_FK_NO_ENCONTRADA"
+    message = "La referencia FK solicitada no existe o no pertenece a la relación indicada."
+
+
+class ReferenciaFKYaExisteException(ConflictException):
+    code = "REFERENCIA_FK_YA_EXISTE"
+    message = "Ya existe una referencia FK con el identificador proporcionado."
+
+
+class VinculoReferenciaFKDuplicadoException(ConflictException):
+    code = "VINCULO_REFERENCIA_FK_DUPLICADO"
+    message = "Ya existe una referencia FK con el mismo par de atributos en esta relación."
+
+
+class AccionReferencialInvalidaException(ValidationException):
+    code = "ACCION_REFERENCIAL_INVALIDA"
+    message = "La acción referencial no es válida."
+
+
+class ActualizacionReferenciaFKVaciaException(ValidationException):
+    code = "ACTUALIZACION_REFERENCIA_FK_VACIA"
+    message = "Debe proporcionar al menos un campo para actualizar la referencia FK."
+
+
+class AtributoNoPerteneceAClaseRelacionException(ValidationException):
+    code = "ATRIBUTO_NO_PERTENECE_A_CLASE_RELACION"
+    message = "El atributo no pertenece a ninguna de las clases involucradas en la relación."
+
+
+class TipoAtributoIncompatibleException(ValidationException):
+    code = "TIPO_ATRIBUTO_INCOMPATIBLE"
+    message = "El tipo de dato del atributo FK no es compatible con el atributo referenciado."
+
+
+class AtributoNoReferenciableException(ValidationException):
+    code = "ATRIBUTO_NO_REFERENCIABLE"
+    message = "El atributo referenciado debe ser clave primaria o único."
+
+
+class ConfiguracionReferenciaFKInvalidaException(ValidationException):
+    code = "CONFIGURACION_REFERENCIA_FK_INVALIDA"
+    message = "La configuración de la referencia FK es incompatible con las propiedades del atributo."
+
+
+class MaterializacionRelacionRequeridaException(ValidationException):
+    code = "MATERIALIZACION_RELACION_REQUERIDA"
+    message = "La relación requiere al menos una referencia FK válida para su tipo y cardinalidades."
 

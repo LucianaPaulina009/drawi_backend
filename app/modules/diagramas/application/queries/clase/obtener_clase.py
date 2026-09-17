@@ -49,7 +49,7 @@ class ObtenerClaseQueryHandler:
         if clase is None or clase.id_diagrama != query.diagrama_id:
             raise ClaseNoEncontradaException()
         atributos = tuple(
-            AtributoDTO(a.id, a.id_clase, a.tipo_dato, a.nombre, a.longitud, a.precision, a.escala, a.es_llave_primaria, a.permite_nulo, a.es_unico, a.valor_por_defecto, a.orden_de_posicion)
+            AtributoDTO(a.id, a.id_clase, a.tipo_dato, a.nombre, a.longitud, a.precision, a.escala, a.es_llave_primaria, a.permite_nulo, a.es_unico, a.valor_por_defecto, a.orden_de_posicion, a.procedencia)
             for a in self.atributo_repository.listar_por_clase(clase.id)
         )
         return ClaseDetalleDTO(clase.id, clase.id_diagrama, clase.nombre, clase.posicion_x, clase.posicion_y, clase.ancho, atributos)

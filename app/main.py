@@ -134,6 +134,12 @@ from app.modules.diagramas.infrastructure.api.routers.clase_router import (
     router as clase_router,
 )
 from app.modules.diagramas.infrastructure.api.routers.atributo_router import router as atributo_router
+from app.modules.diagramas.infrastructure.api.routers.relacion_router import (
+    router as relacion_router,
+)
+from app.modules.diagramas.infrastructure.api.routers.referencia_fk_router import (
+    router as referencia_fk_router,
+)
 
 app.include_router(proyecto_router, prefix="/api")
 app.include_router(invitacion_router, prefix="/api")
@@ -141,5 +147,8 @@ app.include_router(colaborador_router, prefix="/api")
 app.include_router(diagrama_router, prefix="/api")
 app.include_router(clase_router, prefix="/api")
 app.include_router(atributo_router, prefix="/api")
+app.include_router(relacion_router, prefix="/api")
+app.include_router(referencia_fk_router, prefix="/api")
+
 
 

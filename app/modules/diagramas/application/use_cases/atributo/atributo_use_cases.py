@@ -6,10 +6,16 @@ from app.modules.diagramas.domain.exceptions import (
     ActualizacionAtributoVaciaException,
     AtributoYaExisteException,
     OrdenAtributoFueraDeSecuenciaException,
+    MaterializacionRelacionRequeridaException,
 )
 from app.modules.diagramas.domain.repositories.atributo_repository import AtributoRepository
 from app.modules.diagramas.domain.repositories.clase_repository import ClaseRepository
 from app.modules.diagramas.domain.repositories.diagrama_repository import DiagramaRepository
+from app.modules.diagramas.domain.repositories.referencia_fk_repository import (
+    ReferenciaFKRepository,
+)
+from app.modules.diagramas.domain.repositories.relacion_repository import RelacionRepository
+from app.modules.diagramas.application.use_cases.relacion.materializacion import asegurar_materializacion_valida
 from app.modules.gestion_colaboradores.domain.repositories.colaborador_proyecto_repository import (
     ColaboradorProyectoRepository,
 )
@@ -24,10 +30,22 @@ class AtributoCommand:
     atributo_id: UUID | None = None
 
 class AtributoUseCase:
-    def __init__(self, p: ProyectoRepository, d: DiagramaRepository, c: ClaseRepository, a: AtributoRepository, u: UnitOfWork, col: ColaboradorProyectoRepository | None = None):
+    def __init__(
+        self,
+        p: ProyectoRepository,
+        d: DiagramaRepository,
+        c: ClaseRepository,
+        a: AtributoRepository,
+        u: UnitOfWork,
+        col: ColaboradorProyectoRepository | None = None,
+        rfk: ReferenciaFKRepository | None = None,
+        relacion_repository: RelacionRepository | None = None,
+    ):
         self.q = AtributoQueryHandler(p, d, c, a, col)
         self.a = a
         self.u = u
+        self.rfk = rfk
+        self.relaciones = relacion_repository
 
     def crear(self, cmd: AtributoCommand) -> Atributo:
         self.q.clase_autorizada(AtributoQuery(cmd.propietario_id, cmd.clase_id), exigir_edicion=True)
@@ -73,6 +91,23 @@ class AtributoUseCase:
 
     def eliminar(self, cmd: AtributoCommand) -> None:
         self.q.obtener_entidad(AtributoQuery(cmd.propietario_id, cmd.clase_id, cmd.atributo_id), exigir_edicion=True)
+        if self.rfk is not None and cmd.atributo_id is not None:
+            referencias = self.rfk.listar_por_atributo(cmd.atributo_id)
+            self.rfk.eliminar_por_atributo(cmd.atributo_id)
+            if self.relaciones is not None:
+                for referencia in referencias:
+                    relacion = self.relaciones.obtener_por_id(referencia.id_relacion)
+                    if relacion is None:
+                        continue
+                    try:
+                        asegurar_materializacion_valida(
+                            relacion,
+                            self.rfk.listar_por_relacion(relacion.id),
+                            self.a.obtener_por_id,
+                        )
+                    except MaterializacionRelacionRequeridaException:
+                        self.rfk.eliminar_por_relacion(relacion.id)
+                        self.relaciones.eliminar(relacion.id)
         self.a.eliminar(cmd.atributo_id)
         restantes = self.a.listar_por_clase(cmd.clase_id)
         for i, x in enumerate(restantes, 1):
@@ -80,4 +115,3 @@ class AtributoUseCase:
         if restantes:
             self.a.guardar_varios(restantes)
         self.u.commit()
-

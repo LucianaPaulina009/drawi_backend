@@ -53,7 +53,7 @@ class AtributoQueryHandler:
 
     @staticmethod
     def _dto(atributo) -> AtributoDTO:
-        return AtributoDTO(atributo.id, atributo.id_clase, atributo.tipo_dato, atributo.nombre, atributo.longitud, atributo.precision, atributo.escala, atributo.es_llave_primaria, atributo.permite_nulo, atributo.es_unico, atributo.valor_por_defecto, atributo.orden_de_posicion)
+        return AtributoDTO(atributo.id, atributo.id_clase, atributo.tipo_dato, atributo.nombre, atributo.longitud, atributo.precision, atributo.escala, atributo.es_llave_primaria, atributo.permite_nulo, atributo.es_unico, atributo.valor_por_defecto, atributo.orden_de_posicion, atributo.procedencia)
 
     def obtener_entidad(self, query: AtributoQuery, exigir_edicion: bool = False):
         self.clase_autorizada(query, exigir_edicion=exigir_edicion)

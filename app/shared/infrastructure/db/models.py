@@ -21,6 +21,12 @@ from app.modules.diagramas.infrastructure.persistence.models.diagrama_model impo
 )
 from app.modules.diagramas.infrastructure.persistence.models.clase_model import ClaseModel
 from app.modules.diagramas.infrastructure.persistence.models.atributo_model import AtributoModel
+from app.modules.diagramas.infrastructure.persistence.models.relacion_model import (
+    RelacionModel,
+)
+from app.modules.diagramas.infrastructure.persistence.models.referencia_fk_model import (
+    ReferenciaFKModel,
+)
 from app.modules.gestion_colaboradores.infrastructure.persistence.models.colaborador_proyecto_model import (
     ColaboradorProyectoModel,
 )
