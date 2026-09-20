@@ -42,6 +42,9 @@ from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_diag
 from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_atributo_repository import (
     SQLModelAtributoRepository,
 )
+from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_estructura_relacion_nm_repository import (
+    SQLModelEstructuraRelacionNmRepository,
+)
 from app.modules.gestion_colaboradores.infrastructure.persistence.repositories.sqlmodel_colaborador_proyecto_repository import (
     SQLModelColaboradorProyectoRepository,
 )
@@ -128,6 +131,11 @@ def obtener_clase(
     )
 
 
+from app.modules.diagramas.application.services.notificador_colaboracion import (
+    construir_efectos,
+    emitir_evento_mutacion_confirmada,
+    proyectar_clase,
+)
 from app.modules.diagramas.infrastructure.api.schemas.atributo_schemas import AtributoRead
 
 
@@ -168,6 +176,18 @@ def crear_clase(
             id_atributo_inicial=datos.id_atributo_inicial,
         )
     )
+
+    efectos = construir_efectos(
+        clases_actualizadas=[proyectar_clase(clase_repo, atributo_repo, clase.id)]
+    )
+    emitir_evento_mutacion_confirmada(
+        diagrama_id=id_diagrama,
+        action_id=None,
+        tipo_operacion="CREAR_CLASE",
+        emisor_id=usuario.user_id,
+        efectos=efectos,
+    )
+
     return ClaseDetalleRead(
         **_a_read(clase).model_dump(),
         atributos=[
@@ -208,6 +228,7 @@ def actualizar_clase(
     proyecto_repo = SQLModelProyectoRepository(session)
     diagrama_repo = SQLModelDiagramaRepository(session)
     clase_repo = SQLModelClaseRepository(session)
+    atributo_repo = SQLModelAtributoRepository(session)
     colaborador_repo = SQLModelColaboradorProyectoRepository(session)
     clase = ActualizarClaseUseCase(
         proyecto_repo, diagrama_repo, clase_repo, uow, colaborador_repo
@@ -222,6 +243,18 @@ def actualizar_clase(
             ancho=datos.ancho,
         )
     )
+
+    efectos = construir_efectos(
+        clases_actualizadas=[proyectar_clase(clase_repo, atributo_repo, clase.id)]
+    )
+    emitir_evento_mutacion_confirmada(
+        diagrama_id=id_diagrama,
+        action_id=None,
+        tipo_operacion="ACTUALIZAR_CLASE",
+        emisor_id=usuario.user_id,
+        efectos=efectos,
+    )
+
     return _a_read(clase)
 
 
@@ -252,8 +285,9 @@ def eliminar_clase(
     colaborador_repo = SQLModelColaboradorProyectoRepository(session)
     relacion_repo = SQLModelRelacionRepository(session)
     referencia_fk_repo = SQLModelReferenciaFKRepository(session)
+    estructura_nm_repo = SQLModelEstructuraRelacionNmRepository(session)
 
-    EliminarClaseUseCase(
+    resultado = EliminarClaseUseCase(
         proyecto_repo,
         diagrama_repo,
         clase_repo,
@@ -262,6 +296,7 @@ def eliminar_clase(
         colaborador_repo,
         relacion_repo,
         referencia_fk_repo,
+        estructura_nm_repo,
     ).execute(
         EliminarClaseCommand(
             propietario_id=usuario.user_id,
@@ -269,4 +304,18 @@ def eliminar_clase(
             clase_id=id_clase,
         )
     )
+
+    efectos = construir_efectos(
+        clases_eliminadas=list(resultado.clases_eliminadas),
+        relaciones_eliminadas=list(resultado.relaciones_eliminadas),
+        estructuras_nm_eliminadas=list(resultado.estructuras_nm_eliminadas),
+    )
+    emitir_evento_mutacion_confirmada(
+        diagrama_id=id_diagrama,
+        action_id=None,
+        tipo_operacion="ELIMINAR_CLASE",
+        emisor_id=usuario.user_id,
+        efectos=efectos,
+    )
+
     return Response(status_code=status.HTTP_204_NO_CONTENT)

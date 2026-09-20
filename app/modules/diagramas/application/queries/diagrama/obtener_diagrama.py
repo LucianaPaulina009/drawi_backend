@@ -8,6 +8,7 @@ from app.modules.diagramas.application.queries.dtos import (
     ClaseDetalleDTO,
     DiagramaDTO,
     DiagramaDetalleDTO,
+    EstructuraRelacionNmDTO,
     ReferenciaFKDTO,
     RelacionDetalleDTO,
 )
@@ -21,6 +22,7 @@ from app.modules.diagramas.domain.repositories.referencia_fk_repository import (
 from app.modules.diagramas.domain.repositories.relacion_repository import (
     RelacionRepository,
 )
+from app.modules.diagramas.domain.repositories.estructura_relacion_nm_repository import EstructuraRelacionNmRepository
 from app.modules.gestion_colaboradores.domain.exceptions import (
     UsuarioBloqueadoException,
 )
@@ -96,6 +98,7 @@ class ObtenerDiagramaCompletoQueryHandler:
         colaborador_repository: ColaboradorProyectoRepository | None = None,
         relacion_repository: RelacionRepository | None = None,
         referencia_fk_repository: ReferenciaFKRepository | None = None,
+        estructura_nm_repository: EstructuraRelacionNmRepository | None = None,
     ) -> None:
         self.proyecto_repository = proyecto_repository
         self.diagrama_repository = diagrama_repository
@@ -104,6 +107,7 @@ class ObtenerDiagramaCompletoQueryHandler:
         self.colaborador_repository = colaborador_repository
         self.relacion_repository = relacion_repository
         self.referencia_fk_repository = referencia_fk_repository
+        self.estructura_nm_repository = estructura_nm_repository
 
     def execute(self, query: ObtenerDiagramaQuery) -> DiagramaDetalleDTO:
         diagrama = ObtenerDiagramaQueryHandler(
@@ -173,6 +177,7 @@ class ObtenerDiagramaCompletoQueryHandler:
                         cardinalidad_destino=rel.cardinalidad_destino,
                         conector_origen=rel.conector_origen,
                         conector_destino=rel.conector_destino,
+                        nombre=rel.nombre,
                         referencias_fk=tuple(referencias_por_relacion.get(rel.id, [])),
                     )
                 )
@@ -184,4 +189,13 @@ class ObtenerDiagramaCompletoQueryHandler:
             numero=diagrama.numero,
             clases=clases,
             relaciones=tuple(relaciones),
+            estructuras_nm=tuple(
+                EstructuraRelacionNmDTO(
+                    id=estructura.id, id_diagrama=estructura.id_diagrama,
+                    id_clase_origen=estructura.id_clase_origen, id_clase_destino=estructura.id_clase_destino,
+                    id_clase_intermedia=estructura.id_clase_intermedia,
+                    id_relacion_origen=estructura.id_relacion_origen, id_relacion_destino=estructura.id_relacion_destino,
+                )
+                for estructura in (self.estructura_nm_repository.listar_por_diagrama(diagrama.id) if self.estructura_nm_repository else [])
+            ),
         )

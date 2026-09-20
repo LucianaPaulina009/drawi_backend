@@ -56,6 +56,7 @@ class CrearRelacionCommand:
     cardinalidad_destino: str
     conector_origen: str
     conector_destino: str
+    nombre: str | None = None
     materializacion_fk: list[MaterializacionFKCommand] | None = None
 
 
@@ -74,7 +75,9 @@ class CrearRelacionUseCase:
         self.atributo_repository = atributo_repository
         self.referencia_fk_repository = referencia_fk_repository
 
-    def execute(self, command: CrearRelacionCommand) -> Relacion:
+    def execute(
+        self, command: CrearRelacionCommand, confirmar: bool = True
+    ) -> Relacion:
         obtener_diagrama_autorizado(propietario_id=command.propietario_id, diagrama_id=command.diagrama_id,
             proyecto_repository=self.proyecto_repository, diagrama_repository=self.diagrama_repository,
             colaborador_repository=self.colaborador_repository, exigir_edicion=True)
@@ -88,11 +91,12 @@ class CrearRelacionUseCase:
             id_clase_origen=command.id_clase_origen, id_clase_destino=command.id_clase_destino,
             tipo_relacion=command.tipo_relacion, cardinalidad_origen=command.cardinalidad_origen,
             cardinalidad_destino=command.cardinalidad_destino, conector_origen=command.conector_origen,
-            conector_destino=command.conector_destino)
+            conector_destino=command.conector_destino, nombre=command.nombre)
         self.relacion_repository.guardar(relacion)
         if self.atributo_repository is None or self.referencia_fk_repository is None:
             asegurar_materializacion_valida(relacion, [], lambda _: None)
-            self.uow.commit()
+            if confirmar:
+                self.uow.commit()
             return relacion
         referencias = []
         for materializacion in command.materializacion_fk or []:
@@ -106,10 +110,15 @@ class CrearRelacionUseCase:
                 nuevo = materializacion.atributo_fk_nuevo
                 if self.atributo_repository.obtener_por_id(nuevo.id_atributo):
                     raise AtributoYaExisteException()
+                attr_ref = self.atributo_repository.obtener_por_id(materializacion.id_atributo_referenciado)
+                tipo_dato = nuevo.tipo_dato or (attr_ref.tipo_dato if attr_ref else "integer")
+                longitud = nuevo.longitud if nuevo.longitud is not None else (attr_ref.longitud if attr_ref else None)
+                precision = nuevo.precision if nuevo.precision is not None else (attr_ref.precision if attr_ref else None)
+                escala = nuevo.escala if nuevo.escala is not None else (attr_ref.escala if attr_ref else None)
                 existentes = self.atributo_repository.listar_por_clase(materializacion.id_clase_fk)
                 self.atributo_repository.guardar(Atributo.crear(
-                    id=nuevo.id_atributo, id_clase=materializacion.id_clase_fk, nombre=nuevo.nombre, tipo_dato=nuevo.tipo_dato,
-                    longitud=nuevo.longitud, precision=nuevo.precision, escala=nuevo.escala,
+                    id=nuevo.id_atributo, id_clase=materializacion.id_clase_fk, nombre=nuevo.nombre, tipo_dato=tipo_dato,
+                    longitud=longitud, precision=precision, escala=escala,
                     permite_nulo=nuevo.permite_nulo, es_unico=nuevo.es_unico,
                     valor_por_defecto=nuevo.valor_por_defecto,
                     orden_de_posicion=(existentes[-1].orden_de_posicion + 1) if existentes else 1,
@@ -124,5 +133,6 @@ class CrearRelacionUseCase:
                     id_atributo_referenciado=materializacion.id_atributo_referenciado,
                     on_delete=materializacion.on_delete, on_update=materializacion.on_update), confirmar=False))
         asegurar_materializacion_valida(relacion, referencias, self.atributo_repository.obtener_por_id)
-        self.uow.commit()
+        if confirmar:
+            self.uow.commit()
         return relacion

@@ -24,8 +24,14 @@ def configure_event_subscriptions(event_bus: EventBus) -> None:
     Se llama una sola vez durante el startup de la aplicación.
     Agregar suscripciones por módulo en las secciones indicadas.
     """
-    # ── Módulo A ──────────────────────────────────────────────────────────────
-    # from app.modules.orders.domain.events import OrderPlaced
-    # from app.modules.notifications.application.handlers.on_order_placed import OnOrderPlacedHandler
-    # event_bus.subscribe(OrderPlaced, handler.handle)
-    pass
+    # ── Módulo Diagramas ────────────────────────────────────────────────────────
+    from app.modules.diagramas.domain.events.operacion_diagrama_confirmada import (
+        OperacionDiagramaConfirmada,
+    )
+    from app.modules.diagramas.application.handlers.notificar_colaboracion_handler import (
+        NotificarColaboracionHandler,
+    )
+
+    event_bus.subscribe(
+        OperacionDiagramaConfirmada, NotificarColaboracionHandler.handle
+    )

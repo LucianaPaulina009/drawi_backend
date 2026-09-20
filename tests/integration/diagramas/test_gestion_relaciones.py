@@ -30,17 +30,35 @@ def test_ciclo_de_vida_relacion_y_listado(client):
     c2 = _crear_clase(client, diagrama_id, nombre="Pedido")
 
     rel_id = str(uuid.uuid4())
+    ref_id = str(uuid.uuid4())
+    fk_attr_id = str(uuid.uuid4())
     crear_res = client.post(
         f"/api/diagramas/{diagrama_id}/relaciones",
         json={
             "id_relacion": rel_id,
             "id_clase_origen": c1["id"],
             "id_clase_destino": c2["id"],
-                "tipo_relacion": "dependencia",
+            "tipo_relacion": "asociacion",
             "cardinalidad_origen": "1",
             "cardinalidad_destino": "0..*",
             "conector_origen": "right",
             "conector_destino": "left",
+            "nombre": "Tiene",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": ref_id,
+                    "id_clase_fk": c2["id"],
+                    "id_atributo_referenciado": c1["atributos"][0]["id"],
+                    "atributo_fk_nuevo": {
+                        "id_atributo": fk_attr_id,
+                        "nombre": "cliente_id",
+                        "tipo_dato": "integer",
+                        "permite_nulo": True,
+                    },
+                    "on_delete": "RESTRICT",
+                    "on_update": "RESTRICT",
+                }
+            ],
         },
     )
     assert crear_res.status_code == 201
@@ -50,7 +68,7 @@ def test_ciclo_de_vida_relacion_y_listado(client):
     assert data["id_clase_destino"] == c2["id"]
     assert data["cardinalidad_origen"] == "1"
     assert data["cardinalidad_destino"] == "0..*"
-    assert data["referencias_fk"] == []
+    assert len(data["referencias_fk"]) == 1
 
     # Consultar detalle
     det_res = client.get(f"/api/diagramas/{diagrama_id}/relaciones/{rel_id}")
@@ -64,15 +82,12 @@ def test_ciclo_de_vida_relacion_y_listado(client):
     assert len(items) == 1
     assert items[0]["id"] == rel_id
 
-    # Actualizar parcialmente
+    # Actualizar parcialmente campo estructural es rechazado
     patch_res = client.patch(
         f"/api/diagramas/{diagrama_id}/relaciones/{rel_id}",
         json={"cardinalidad_destino": "1..*", "conector_origen": "top"},
     )
-    assert patch_res.status_code == 200
-    assert patch_res.json()["cardinalidad_destino"] == "1..*"
-    assert patch_res.json()["conector_origen"] == "top"
-    assert patch_res.json()["cardinalidad_origen"] == "1"
+    assert patch_res.status_code in (400, 422)
 
     # Eliminar
     del_res = client.delete(f"/api/diagramas/{diagrama_id}/relaciones/{rel_id}")
@@ -89,17 +104,32 @@ def test_rechaza_uuid_duplicado_en_relacion(client):
     c2 = _crear_clase(client, diagrama_id)
 
     rel_id = str(uuid.uuid4())
+    ref_id = str(uuid.uuid4())
+    fk_attr_id = str(uuid.uuid4())
     res1 = client.post(
         f"/api/diagramas/{diagrama_id}/relaciones",
         json={
             "id_relacion": rel_id,
             "id_clase_origen": c1["id"],
             "id_clase_destino": c2["id"],
-                "tipo_relacion": "dependencia",
+            "tipo_relacion": "asociacion",
             "cardinalidad_origen": "1",
-            "cardinalidad_destino": "1",
+            "cardinalidad_destino": "0..*",
             "conector_origen": "right",
             "conector_destino": "left",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": ref_id,
+                    "id_clase_fk": c2["id"],
+                    "id_atributo_referenciado": c1["atributos"][0]["id"],
+                    "atributo_fk_nuevo": {
+                        "id_atributo": fk_attr_id,
+                        "nombre": "c1_id",
+                        "tipo_dato": "integer",
+                        "permite_nulo": True,
+                    },
+                }
+            ],
         },
     )
     assert res1.status_code == 201
@@ -115,6 +145,19 @@ def test_rechaza_uuid_duplicado_en_relacion(client):
             "cardinalidad_destino": "1",
             "conector_origen": "top",
             "conector_destino": "bottom",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": str(uuid.uuid4()),
+                    "id_clase_fk": c1["id"],
+                    "id_atributo_referenciado": c2["atributos"][0]["id"],
+                    "atributo_fk_nuevo": {
+                        "id_atributo": str(uuid.uuid4()),
+                        "nombre": "c2_fk",
+                        "tipo_dato": "integer",
+                        "permite_nulo": True,
+                    },
+                }
+            ],
         },
     )
     assert res2.status_code == 409
@@ -125,17 +168,32 @@ def test_relacion_recursiva(client):
     c1 = _crear_clase(client, diagrama_id, nombre="Empleado")
 
     rel_id = str(uuid.uuid4())
+    ref_id = str(uuid.uuid4())
+    fk_attr_id = str(uuid.uuid4())
     res = client.post(
         f"/api/diagramas/{diagrama_id}/relaciones",
         json={
             "id_relacion": rel_id,
             "id_clase_origen": c1["id"],
             "id_clase_destino": c1["id"],
-                "tipo_relacion": "dependencia",
+            "tipo_relacion": "asociacion",
             "cardinalidad_origen": "0..1",
             "cardinalidad_destino": "0..*",
             "conector_origen": "top",
             "conector_destino": "right",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": ref_id,
+                    "id_clase_fk": c1["id"],
+                    "id_atributo_referenciado": c1["atributos"][0]["id"],
+                    "atributo_fk_nuevo": {
+                        "id_atributo": fk_attr_id,
+                        "nombre": "supervisor_id",
+                        "tipo_dato": "integer",
+                        "permite_nulo": True,
+                    },
+                }
+            ],
         },
     )
     assert res.status_code == 201
@@ -252,7 +310,7 @@ def test_permisos_por_rol_relaciones(
     colab_id = next(m["id"] for m in miembros if not m["es_propietario"])
     client.patch(f"/api/proyectos/{proyecto_id}/miembros/{colab_id}/rol", json={"rol": "editor"})
 
-    # Editor puede crear una relación que no requiere materialización FK.
+    # Editor puede crear una relación válida con materialización FK.
     app.dependency_overrides[get_current_user] = lambda: usuario_secundario
     res_crear_ok = client.post(
         f"/api/diagramas/{diagrama_id}/relaciones",
@@ -260,11 +318,24 @@ def test_permisos_por_rol_relaciones(
             "id_relacion": rel_id,
             "id_clase_origen": c1["id"],
             "id_clase_destino": c2["id"],
-            "tipo_relacion": "dependencia",
+            "tipo_relacion": "asociacion",
             "cardinalidad_origen": "1",
-            "cardinalidad_destino": "1",
+            "cardinalidad_destino": "0..*",
             "conector_origen": "right",
             "conector_destino": "left",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": str(uuid.uuid4()),
+                    "id_clase_fk": c2["id"],
+                    "id_atributo_referenciado": c1["atributos"][0]["id"],
+                    "atributo_fk_nuevo": {
+                        "id_atributo": str(uuid.uuid4()),
+                        "nombre": "c1_id",
+                        "tipo_dato": "integer",
+                        "permite_nulo": True,
+                    },
+                }
+            ],
         },
     )
     assert res_crear_ok.status_code == 201

@@ -47,6 +47,9 @@ from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_clas
 from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_diagrama_repository import (
     SQLModelDiagramaRepository,
 )
+from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_estructura_relacion_nm_repository import (
+    SQLModelEstructuraRelacionNmRepository,
+)
 from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_referencia_fk_repository import (
     SQLModelReferenciaFKRepository,
 )
@@ -74,6 +77,7 @@ def _a_relacion_read(relacion) -> RelacionRead:
         cardinalidad_destino=relacion.cardinalidad_destino,
         conector_origen=relacion.conector_origen,
         conector_destino=relacion.conector_destino,
+        nombre=getattr(relacion, "nombre", None),
     )
 
 
@@ -178,6 +182,14 @@ def obtener_relacion(
     return _a_relacion_detalle_read(resultado)
 
 
+from app.modules.diagramas.application.services.notificador_colaboracion import (
+    construir_efectos,
+    emitir_evento_mutacion_confirmada,
+    proyectar_clase,
+    proyectar_relacion,
+)
+
+
 @router.post(
     "/{id_diagrama}/relaciones",
     response_model=RelacionDetalleRead,
@@ -220,6 +232,7 @@ def crear_relacion(
             cardinalidad_destino=datos.cardinalidad_destino,
             conector_origen=datos.conector_origen,
             conector_destino=datos.conector_destino,
+            nombre=datos.nombre,
             materializacion_fk=[
                 MaterializacionFKCommand(
                     id_referencia_fk=item.id_referencia_fk,
@@ -236,6 +249,26 @@ def crear_relacion(
             ],
         )
     )
+
+    clases_act = []
+    for item in datos.materializacion_fk:
+        if item.id_clase_fk:
+            c = proyectar_clase(clase_repo, atributo_repo, item.id_clase_fk)
+            if c:
+                clases_act.append(c)
+
+    efectos = construir_efectos(
+        clases_actualizadas=clases_act,
+        relaciones_actualizadas=[proyectar_relacion(relacion_repo, referencia_fk_repo, relacion.id)],
+    )
+    emitir_evento_mutacion_confirmada(
+        diagrama_id=id_diagrama,
+        action_id=None,
+        tipo_operacion="CREAR_RELACION",
+        emisor_id=usuario.user_id,
+        efectos=efectos,
+    )
+
     return _a_relacion_detalle_read(
         relacion,
         referencias=referencia_fk_repo.listar_por_relacion(relacion.id),
@@ -278,6 +311,7 @@ def actualizar_relacion(
             propietario_id=usuario.user_id,
             diagrama_id=id_diagrama,
             relacion_id=id_relacion,
+            nombre=datos.nombre,
             id_clase_origen=datos.id_clase_origen,
             id_clase_destino=datos.id_clase_destino,
             tipo_relacion=datos.tipo_relacion,
@@ -303,6 +337,18 @@ def actualizar_relacion(
             ),
         )
     )
+
+    efectos = construir_efectos(
+        relaciones_actualizadas=[proyectar_relacion(relacion_repo, referencia_fk_repo, relacion.id)]
+    )
+    emitir_evento_mutacion_confirmada(
+        diagrama_id=id_diagrama,
+        action_id=None,
+        tipo_operacion="RENOMBRAR_RELACION",
+        emisor_id=usuario.user_id,
+        efectos=efectos,
+    )
+
     return _a_relacion_read(relacion)
 
 
@@ -323,9 +369,11 @@ def eliminar_relacion(
     relacion_repo = SQLModelRelacionRepository(session)
     referencia_fk_repo = SQLModelReferenciaFKRepository(session)
     atributo_repo = SQLModelAtributoRepository(session)
+    clase_repo = SQLModelClaseRepository(session)
+    estructura_nm_repo = SQLModelEstructuraRelacionNmRepository(session)
     colaborador_repo = SQLModelColaboradorProyectoRepository(session)
 
-    EliminarRelacionUseCase(
+    resultado = EliminarRelacionUseCase(
         proyecto_repo,
         diagrama_repo,
         relacion_repo,
@@ -333,6 +381,8 @@ def eliminar_relacion(
         uow,
         colaborador_repo,
         atributo_repo,
+        clase_repo,
+        estructura_nm_repo,
     ).execute(
         EliminarRelacionCommand(
             propietario_id=usuario.user_id,
@@ -340,4 +390,18 @@ def eliminar_relacion(
             relacion_id=id_relacion,
         )
     )
+
+    efectos = construir_efectos(
+        clases_eliminadas=list(resultado.clases_eliminadas),
+        relaciones_eliminadas=list(resultado.relaciones_eliminadas),
+        estructuras_nm_eliminadas=list(resultado.estructuras_nm_eliminadas),
+    )
+    emitir_evento_mutacion_confirmada(
+        diagrama_id=id_diagrama,
+        action_id=None,
+        tipo_operacion="ELIMINAR_RELACION",
+        emisor_id=usuario.user_id,
+        efectos=efectos,
+    )
+
     return Response(status_code=status.HTTP_204_NO_CONTENT)

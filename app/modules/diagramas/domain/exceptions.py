@@ -184,3 +184,49 @@ class MaterializacionRelacionRequeridaException(ValidationException):
     code = "MATERIALIZACION_RELACION_REQUERIDA"
     message = "La relación requiere al menos una referencia FK válida para su tipo y cardinalidades."
 
+
+class EstructuraRelacionNmNoEncontradaException(NotFoundException):
+    code = "ESTRUCTURA_RELACION_NM_NO_ENCONTRADA"
+    message = "La estructura muchos-a-muchos solicitada no existe en el diagrama indicado."
+
+
+class ConflictoIdempotenciaException(ConflictException):
+    code = "CONFLICTO_IDEMPOTENCIA"
+    message = "La clave de idempotencia ya fue usada con un contenido diferente."
+
+
+class LlavePrimariaProtegidaException(ValidationException):
+    code = "LLAVE_PRIMARIA_PROTEGIDA"
+    message = "La llave primaria del sistema está protegida y no puede ser eliminada ni alterada estructuralmente."
+
+
+class LlaveForaneaProtegidaException(ValidationException):
+    """Una llave foránea de sistema solo se elimina al cerrar su relación estructural."""
+
+    code = "LLAVE_FORANEA_PROTEGIDA"
+    message = "No se puede eliminar la clave foránea."
+
+
+class LlavePrimariaDuplicadaException(ValidationException):
+    code = "LLAVE_PRIMARIA_DUPLICADA"
+    message = "La clase ya contiene una llave primaria y no se permite agregar otra."
+
+
+class AtributoEstructuralInmutableException(ValidationException):
+    code = "ATRIBUTO_ESTRUCTURAL_INMUTABLE"
+    message = "Los atributos estructurales o con referencias FK activas solo permiten modificar su nombre u orden de posición."
+
+
+class NombreRelacionInvalidoException(ValidationException):
+    code = "NOMBRE_RELACION_INVALIDO"
+    message = "El nombre de la relación debe tener entre 1 y 100 caracteres."
+
+
+class RelacionEstructuralInmutableException(ValidationException):
+    code = "RELACION_ESTRUCTURAL_INMUTABLE"
+    message = "Las relaciones son inmutables estructuralmente una vez creadas."
+
+
+class ReferenciaFKEstructuralInmutableException(ValidationException):
+    code = "REFERENCIA_FK_ESTRUCTURAL_INMUTABLE"
+    message = "Las referencias FK son inmutables estructuralmente una vez creadas junto a su relación."

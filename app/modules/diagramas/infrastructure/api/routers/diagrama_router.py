@@ -53,6 +53,9 @@ from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_refe
 from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_relacion_repository import (
     SQLModelRelacionRepository,
 )
+from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_estructura_relacion_nm_repository import (
+    SQLModelEstructuraRelacionNmRepository,
+)
 from app.modules.gestion_colaboradores.infrastructure.persistence.repositories.sqlmodel_colaborador_proyecto_repository import (
     SQLModelColaboradorProyectoRepository,
 )
@@ -117,6 +120,7 @@ def obtener_diagrama(
     colaborador_repo = SQLModelColaboradorProyectoRepository(session)
     relacion_repo = SQLModelRelacionRepository(session)
     referencia_fk_repo = SQLModelReferenciaFKRepository(session)
+    estructura_nm_repo = SQLModelEstructuraRelacionNmRepository(session)
 
     resultado = ObtenerDiagramaCompletoQueryHandler(
         proyecto_repo,
@@ -126,6 +130,7 @@ def obtener_diagrama(
         colaborador_repo,
         relacion_repo,
         referencia_fk_repo,
+        estructura_nm_repo,
     ).execute(
         ObtenerDiagramaQuery(
             usuario_id=usuario.user_id,
@@ -172,6 +177,7 @@ def obtener_diagrama(
             )
             for rel in resultado.relaciones
         ],
+        estructuras_nm=[asdict(estructura) for estructura in resultado.estructuras_nm],
     )
 
 
@@ -262,4 +268,3 @@ def eliminar_diagrama(
         )
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-

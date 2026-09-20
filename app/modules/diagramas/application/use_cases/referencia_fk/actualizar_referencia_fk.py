@@ -17,6 +17,7 @@ from app.modules.diagramas.domain.exceptions import (
     AtributoNoPerteneceAClaseRelacionException,
     AtributoNoReferenciableException,
     ConfiguracionReferenciaFKInvalidaException,
+    ReferenciaFKEstructuralInmutableException,
     ReferenciaFKNoEncontradaException,
     RelacionNoEncontradaException,
     TipoAtributoIncompatibleException,
@@ -96,6 +97,11 @@ class ActualizarReferenciaFKUseCase:
             colaborador_repository=self.colaborador_repository,
             exigir_edicion=True,
         )
+
+        raise ReferenciaFKEstructuralInmutableException(
+            "Las referencias FK son inmutables estructuralmente una vez creadas."
+        )
+
 
         nuevo_fk = command.id_atributo_fk or referencia.id_atributo_fk
         nuevo_ref = command.id_atributo_referenciado or referencia.id_atributo_referenciado

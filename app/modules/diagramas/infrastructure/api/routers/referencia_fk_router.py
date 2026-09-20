@@ -135,6 +135,13 @@ def obtener_referencia_fk(
     return _a_referencia_fk_read(referencia)
 
 
+from app.modules.diagramas.application.services.notificador_colaboracion import (
+    construir_efectos,
+    emitir_evento_mutacion_confirmada,
+    proyectar_relacion,
+)
+
+
 @router.post(
     "/{id_relacion}/referencias-fk",
     response_model=ReferenciaFKRead,
@@ -176,6 +183,20 @@ def crear_referencia_fk(
             on_update=datos.on_update,
         )
     )
+
+    rel = relacion_repo.obtener_por_id(id_relacion)
+    if rel:
+        efectos = construir_efectos(
+            relaciones_actualizadas=[proyectar_relacion(relacion_repo, referencia_fk_repo, id_relacion)]
+        )
+        emitir_evento_mutacion_confirmada(
+            diagrama_id=rel.id_diagrama,
+            action_id=None,
+            tipo_operacion="ACTUALIZAR_RELACION",
+            emisor_id=usuario.user_id,
+            efectos=efectos,
+        )
+
     return _a_referencia_fk_read(referencia)
 
 
@@ -221,6 +242,20 @@ def actualizar_referencia_fk(
             on_update=datos.on_update,
         )
     )
+
+    rel = relacion_repo.obtener_por_id(id_relacion)
+    if rel:
+        efectos = construir_efectos(
+            relaciones_actualizadas=[proyectar_relacion(relacion_repo, referencia_fk_repo, id_relacion)]
+        )
+        emitir_evento_mutacion_confirmada(
+            diagrama_id=rel.id_diagrama,
+            action_id=None,
+            tipo_operacion="ACTUALIZAR_RELACION",
+            emisor_id=usuario.user_id,
+            efectos=efectos,
+        )
+
     return _a_referencia_fk_read(referencia)
 
 
@@ -243,6 +278,9 @@ def eliminar_referencia_fk(
     atributo_repo = SQLModelAtributoRepository(session)
     colaborador_repo = SQLModelColaboradorProyectoRepository(session)
 
+    rel = relacion_repo.obtener_por_id(id_relacion)
+    diagrama_id = rel.id_diagrama if rel else None
+
     EliminarReferenciaFKUseCase(
         proyecto_repo,
         diagrama_repo,
@@ -258,4 +296,18 @@ def eliminar_referencia_fk(
             referencia_id=id_referencia,
         )
     )
+
+    if diagrama_id:
+        efectos = construir_efectos(
+            relaciones_actualizadas=[proyectar_relacion(relacion_repo, referencia_fk_repo, id_relacion)]
+            if relacion_repo.obtener_por_id(id_relacion) else []
+        )
+        emitir_evento_mutacion_confirmada(
+            diagrama_id=diagrama_id,
+            action_id=None,
+            tipo_operacion="ACTUALIZAR_RELACION",
+            emisor_id=usuario.user_id,
+            efectos=efectos,
+        )
+
     return Response(status_code=status.HTTP_204_NO_CONTENT)

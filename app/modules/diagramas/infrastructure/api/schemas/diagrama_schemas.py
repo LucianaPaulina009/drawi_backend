@@ -59,4 +59,4 @@ class ClaseEnDiagramaRead(BaseModel):
 class DiagramaDetalleRead(DiagramaRead):
     clases: list[ClaseEnDiagramaRead] = Field(default_factory=list)
     relaciones: list[RelacionDetalleRead] = Field(default_factory=list)
-
+    estructuras_nm: list[dict] = Field(default_factory=list)

@@ -83,5 +83,6 @@ class ObtenerRelacionQueryHandler:
             cardinalidad_destino=relacion.cardinalidad_destino,
             conector_origen=relacion.conector_origen,
             conector_destino=relacion.conector_destino,
+            nombre=relacion.nombre,
             referencias_fk=referencias,
         )

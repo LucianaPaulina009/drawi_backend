@@ -5,8 +5,12 @@ import pytest
 from app.modules.diagramas.domain.entities.atributo import Atributo
 from app.modules.diagramas.domain.exceptions import (
     ConfiguracionAtributoInvalidaException,
+    LlaveForaneaProtegidaException,
+    LlavePrimariaProtegidaException,
     NombreAtributoInvalidoException,
 )
+from app.modules.diagramas.application.validaciones import validar_eliminacion_atributo
+from app.modules.diagramas.domain.value_objects.procedencia_atributo import ProcedenciaAtributo
 
 
 def test_atributo_normaliza_campos_dependientes_del_tipo_de_dato():
@@ -91,7 +95,7 @@ def test_llave_primaria_no_permite_nulo():
     assert atributo.es_llave_primaria is True
     assert atributo.permite_nulo is False
 
-    with pytest.raises(ConfiguracionAtributoInvalidaException):
+    with pytest.raises(LlavePrimariaProtegidaException):
         atributo.actualizar(permite_nulo=True)
 
 
@@ -106,3 +110,16 @@ def test_atributo_crear_con_id_personalizado():
     )
     assert atributo.id == custom_id
 
+
+def test_llave_foranea_de_sistema_no_se_puede_eliminar_directamente():
+    atributo = Atributo.crear(
+        id_clase=UUID(int=1),
+        tipo_dato="integer",
+        nombre="cliente_id",
+        orden_de_posicion=2,
+        permite_nulo=False,
+        procedencia=ProcedenciaAtributo.SISTEMA_FK,
+    )
+
+    with pytest.raises(LlaveForaneaProtegidaException, match="clave foránea"):
+        validar_eliminacion_atributo(atributo)

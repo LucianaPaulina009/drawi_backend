@@ -9,6 +9,7 @@ from app.modules.diagramas.domain.entities.relacion import NO_DEFINIDO, Relacion
 from app.modules.diagramas.domain.exceptions import (
     ActualizacionRelacionVaciaException,
     ClaseNoEncontradaException,
+    RelacionEstructuralInmutableException,
     RelacionNoEncontradaException,
 )
 from app.modules.diagramas.domain.repositories.atributo_repository import (
@@ -44,6 +45,7 @@ class ActualizarRelacionCommand:
     propietario_id: str
     diagrama_id: UUID
     relacion_id: UUID
+    nombre: str | None = None
     id_clase_origen: UUID | None = None
     id_clase_destino: UUID | None = None
     tipo_relacion: str | None = None
@@ -89,86 +91,28 @@ class ActualizarRelacionUseCase:
         if relacion is None or relacion.id_diagrama != command.diagrama_id:
             raise RelacionNoEncontradaException()
 
-        nueva_origen = command.id_clase_origen or relacion.id_clase_origen
-        nueva_destino = command.id_clase_destino or relacion.id_clase_destino
-
-        if command.id_clase_origen is not None:
-            clase_o = self.clase_repository.obtener_por_id(command.id_clase_origen)
-            if clase_o is None or clase_o.id_diagrama != command.diagrama_id:
-                raise ClaseNoEncontradaException()
-
-        if command.id_clase_destino is not None:
-            clase_d = self.clase_repository.obtener_por_id(command.id_clase_destino)
-            if clase_d is None or clase_d.id_diagrama != command.diagrama_id:
-                raise ClaseNoEncontradaException()
-
-        # Las referencias que dejan de pertenecer a los extremos finales no pueden sobrevivir.
-        if (
-            nueva_origen != relacion.id_clase_origen
-            or nueva_destino != relacion.id_clase_destino
-        ):
-            attrs_origen = {
-                a.id for a in self.atributo_repository.listar_por_clase(nueva_origen)
-            }
-            attrs_destino = {
-                a.id for a in self.atributo_repository.listar_por_clase(nueva_destino)
-            }
-            attrs_validos = attrs_origen | attrs_destino
-
-            for ref in self.referencia_fk_repository.listar_por_relacion(relacion.id):
-                if (
-                    ref.id_atributo_fk not in attrs_validos
-                    or ref.id_atributo_referenciado not in attrs_validos
-                ):
-                    self.referencia_fk_repository.eliminar(ref.id)
-
-        relacion.actualizar(
-            id_clase_origen=command.id_clase_origen or NO_DEFINIDO,
-            id_clase_destino=command.id_clase_destino or NO_DEFINIDO,
-            tipo_relacion=command.tipo_relacion or NO_DEFINIDO,
-            cardinalidad_origen=command.cardinalidad_origen or NO_DEFINIDO,
-            cardinalidad_destino=command.cardinalidad_destino or NO_DEFINIDO,
-            conector_origen=command.conector_origen or NO_DEFINIDO,
-            conector_destino=command.conector_destino or NO_DEFINIDO,
+        campos_estructurales = (
+            command.id_clase_origen,
+            command.id_clase_destino,
+            command.tipo_relacion,
+            command.cardinalidad_origen,
+            command.cardinalidad_destino,
+            command.conector_origen,
+            command.conector_destino,
+            command.materializacion_fk,
         )
+        if any(c is not None for c in campos_estructurales):
+            raise RelacionEstructuralInmutableException(
+                "Las relaciones son inmutables estructuralmente una vez creadas."
+            )
 
+        if command.nombre is None:
+            raise ActualizacionRelacionVaciaException(
+                "Debe proporcionar el nombre a actualizar para la relación."
+            )
+
+        relacion.actualizar_nombre(command.nombre)
         self.relacion_repository.guardar(relacion)
-        referencias = self.referencia_fk_repository.listar_por_relacion(relacion.id)
-        if command.materializacion_fk:
-            for materializacion in command.materializacion_fk:
-                atributo_fk_id = materializacion.id_atributo_fk
-                if materializacion.atributo_fk_nuevo is not None:
-                    if materializacion.id_clase_fk not in {
-                        relacion.id_clase_origen,
-                        relacion.id_clase_destino,
-                    }:
-                        raise ClaseNoEncontradaException()
-                    nuevo = materializacion.atributo_fk_nuevo
-                    if self.atributo_repository.obtener_por_id(nuevo.id_atributo):
-                        raise AtributoYaExisteException()
-                    existentes = self.atributo_repository.listar_por_clase(materializacion.id_clase_fk)
-                    self.atributo_repository.guardar(Atributo.crear(
-                        id=nuevo.id_atributo, id_clase=materializacion.id_clase_fk,
-                        nombre=nuevo.nombre, tipo_dato=nuevo.tipo_dato, longitud=nuevo.longitud,
-                        precision=nuevo.precision, escala=nuevo.escala, permite_nulo=nuevo.permite_nulo,
-                        es_unico=nuevo.es_unico, valor_por_defecto=nuevo.valor_por_defecto,
-                        orden_de_posicion=(existentes[-1].orden_de_posicion + 1) if existentes else 1,
-                        procedencia=ProcedenciaAtributo.SISTEMA_FK,
-                    ))
-                    atributo_fk_id = nuevo.id_atributo
-                if atributo_fk_id is None:
-                    raise ActualizacionRelacionVaciaException("La actualización requiere un atributo FK.")
-                referencias.append(CrearReferenciaFKUseCase(
-                    self.proyecto_repository, self.diagrama_repository, self.relacion_repository,
-                    self.clase_repository, self.atributo_repository, self.referencia_fk_repository,
-                    self.uow, self.colaborador_repository,
-                ).execute(CrearReferenciaFKCommand(
-                    propietario_id=command.propietario_id, relacion_id=relacion.id,
-                    id_referencia_fk=materializacion.id_referencia_fk,
-                    id_atributo_fk=atributo_fk_id,
-                    id_atributo_referenciado=materializacion.id_atributo_referenciado,
-                    on_delete=materializacion.on_delete, on_update=materializacion.on_update,
-                ), confirmar=False))
-        asegurar_materializacion_valida(relacion, referencias, self.atributo_repository.obtener_por_id)
         self.uow.commit()
         return relacion
+

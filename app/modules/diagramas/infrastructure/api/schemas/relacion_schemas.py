@@ -51,10 +51,12 @@ class CrearRelacionRequest(BaseModel):
     cardinalidad_destino: str
     conector_origen: str
     conector_destino: str
+    nombre: str | None = None
     materializacion_fk: list[MaterializacionFKRequest] = Field(default_factory=list)
 
 
 class ActualizarRelacionRequest(BaseModel):
+    nombre: str | None = None
     id_clase_origen: UUID | None = None
     id_clase_destino: UUID | None = None
     tipo_relacion: str | None = None
@@ -69,6 +71,7 @@ class ActualizarRelacionRequest(BaseModel):
         if all(
             valor is None
             for valor in (
+                self.nombre,
                 self.id_clase_origen,
                 self.id_clase_destino,
                 self.tipo_relacion,
@@ -93,6 +96,8 @@ class RelacionRead(BaseModel):
     cardinalidad_destino: str
     conector_origen: str
     conector_destino: str
+    nombre: str | None = None
+
 
 
 class RelacionDetalleRead(RelacionRead):

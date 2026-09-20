@@ -22,19 +22,39 @@ def test_quickstart_escenario_1_ciclo_de_vida_relacion(client):
     )
     assert res_c2.status_code == 201
 
-    # 3. Crear relación R1
+    c1_pk = res_c1.json()["atributos"][0]["id"]
+
+    # 3. Crear relación R1 con materialización FK obligatoria
     r1_id = str(uuid.uuid4())
+    ref_id = str(uuid.uuid4())
+    fk_attr_id = str(uuid.uuid4())
     res_r1 = client.post(
         f"/api/diagramas/{diagrama_id}/relaciones",
         json={
             "id_relacion": r1_id,
             "id_clase_origen": c1_id,
             "id_clase_destino": c2_id,
-            "tipo_relacion": "dependencia",
+            "tipo_relacion": "asociacion",
             "cardinalidad_origen": "1",
             "cardinalidad_destino": "0..*",
             "conector_origen": "right",
             "conector_destino": "left",
+            "nombre": "Asociación",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": ref_id,
+                    "id_clase_fk": c2_id,
+                    "id_atributo_referenciado": c1_pk,
+                    "atributo_fk_nuevo": {
+                        "id_atributo": fk_attr_id,
+                        "nombre": "cliente_id",
+                        "tipo_dato": "integer",
+                        "permite_nulo": True,
+                    },
+                    "on_delete": "RESTRICT",
+                    "on_update": "RESTRICT",
+                }
+            ],
         },
     )
     assert res_r1.status_code == 201
@@ -49,13 +69,19 @@ def test_quickstart_escenario_1_ciclo_de_vida_relacion(client):
     assert det_res.status_code == 200
     assert det_res.json()["id"] == r1_id
 
-    # 5. Actualizar parcialmente (PATCH)
-    patch_res = client.patch(
+    # 5. Actualizar nombre funciona en Asociación; cambio estructural es rechazado
+    patch_ok = client.patch(
+        f"/api/diagramas/{diagrama_id}/relaciones/{r1_id}",
+        json={"nombre": "Ordenes"},
+    )
+    assert patch_ok.status_code == 200
+    assert patch_ok.json()["nombre"] == "Ordenes"
+
+    patch_err = client.patch(
         f"/api/diagramas/{diagrama_id}/relaciones/{r1_id}",
         json={"cardinalidad_destino": "1..*"},
     )
-    assert patch_res.status_code == 200
-    assert patch_res.json()["cardinalidad_destino"] == "1..*"
+    assert patch_err.status_code == 400
 
 
 def test_quickstart_escenario_2_relacion_recursiva(client):
@@ -64,23 +90,39 @@ def test_quickstart_escenario_2_relacion_recursiva(client):
     diagrama_id = client.get(f"/api/proyectos/{proyecto_id}/diagramas").json()["items"][0]["id"]
 
     c1_id = str(uuid.uuid4())
-    client.post(
+    c1_res = client.post(
         f"/api/diagramas/{diagrama_id}/clases",
         json={"id_clase": c1_id, "nombre": "Empleado", "posicion_x": 100, "posicion_y": 100, "ancho": 280},
     )
+    c1_pk = c1_res.json()["atributos"][0]["id"]
 
     r_rec_id = str(uuid.uuid4())
+    ref_id = str(uuid.uuid4())
+    fk_attr_id = str(uuid.uuid4())
     res_rec = client.post(
         f"/api/diagramas/{diagrama_id}/relaciones",
         json={
             "id_relacion": r_rec_id,
             "id_clase_origen": c1_id,
             "id_clase_destino": c1_id,
-            "tipo_relacion": "dependencia",
+            "tipo_relacion": "asociacion",
             "cardinalidad_origen": "0..1",
             "cardinalidad_destino": "0..*",
             "conector_origen": "top",
             "conector_destino": "right",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": ref_id,
+                    "id_clase_fk": c1_id,
+                    "id_atributo_referenciado": c1_pk,
+                    "atributo_fk_nuevo": {
+                        "id_atributo": fk_attr_id,
+                        "nombre": "supervisor_id",
+                        "tipo_dato": "integer",
+                        "permite_nulo": True,
+                    },
+                }
+            ],
         },
     )
     assert res_rec.status_code == 201
@@ -94,21 +136,11 @@ def test_quickstart_escenario_3_referencias_fk_e_integridad(client):
     diagrama_id = client.get(f"/api/proyectos/{proyecto_id}/diagramas").json()["items"][0]["id"]
 
     c1_id = str(uuid.uuid4())
-    client.post(
+    res_c1 = client.post(
         f"/api/diagramas/{diagrama_id}/clases",
         json={"id_clase": c1_id, "nombre": "Cliente", "posicion_x": 100, "posicion_y": 100, "ancho": 280},
     )
-    a1 = client.post(
-        f"/api/clases/{c1_id}/atributos",
-        json={
-            "tipo_dato": "integer",
-            "nombre": "id_cliente",
-            "es_llave_primaria": True,
-            "permite_nulo": False,
-            "es_unico": True,
-            "orden_de_posicion": 1,
-        },
-    ).json()
+    a1 = res_c1.json()["atributos"][0]
 
     c2_id = str(uuid.uuid4())
     client.post(
@@ -128,42 +160,42 @@ def test_quickstart_escenario_3_referencias_fk_e_integridad(client):
     ).json()
 
     r1_id = str(uuid.uuid4())
-    client.post(
+    fk1_id = str(uuid.uuid4())
+    res_r1 = client.post(
         f"/api/diagramas/{diagrama_id}/relaciones",
         json={
             "id_relacion": r1_id,
             "id_clase_origen": c1_id,
             "id_clase_destino": c2_id,
-            "tipo_relacion": "dependencia",
+            "tipo_relacion": "asociacion",
             "cardinalidad_origen": "1",
             "cardinalidad_destino": "0..*",
             "conector_origen": "right",
             "conector_destino": "left",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": fk1_id,
+                    "id_clase_fk": c2_id,
+                    "id_atributo_fk": a2["id"],
+                    "id_atributo_referenciado": a1["id"],
+                    "on_delete": "SET_NULL",
+                    "on_update": "CASCADE",
+                }
+            ],
         },
     )
+    assert res_r1.status_code == 201
 
-    # 1. Crear Referencia FK Válida
-    fk1_id = str(uuid.uuid4())
-    res_fk1 = client.post(
-        f"/api/relaciones/{r1_id}/referencias-fk",
-        json={
-            "id_referencia_fk": fk1_id,
-            "id_atributo_fk": a2["id"],
-            "id_atributo_referenciado": a1["id"],
-            "on_delete": "SET_NULL",
-            "on_update": "CASCADE",
-        },
-    )
-    assert res_fk1.status_code == 201
-    assert res_fk1.json()["id"] == fk1_id
+    # 1. Verificar Referencia FK creada
+    assert len(res_r1.json()["referencias_fk"]) == 1
+    assert res_r1.json()["referencias_fk"][0]["id"] == fk1_id
 
-    # 2. Actualizar Referencia FK sin conflicto consigo misma
+    # 2. Actualizar Referencia FK es rechazado por inmutabilidad estructural (016)
     res_patch = client.patch(
         f"/api/relaciones/{r1_id}/referencias-fk/{fk1_id}",
         json={"on_delete": "CASCADE"},
     )
-    assert res_patch.status_code == 200
-    assert res_patch.json()["on_delete"] == "CASCADE"
+    assert res_patch.status_code == 400
 
     # 3. Rechazo por incompatibilidad de tipo
     a_str = client.post(
@@ -262,21 +294,11 @@ def test_quickstart_escenario_4_integridad_purga_y_cascada(client):
     diagrama_id = client.get(f"/api/proyectos/{proyecto_id}/diagramas").json()["items"][0]["id"]
 
     c1_id = str(uuid.uuid4())
-    client.post(
+    res_c1 = client.post(
         f"/api/diagramas/{diagrama_id}/clases",
         json={"id_clase": c1_id, "nombre": "Cliente", "posicion_x": 100, "posicion_y": 100, "ancho": 280},
     )
-    a1 = client.post(
-        f"/api/clases/{c1_id}/atributos",
-        json={
-            "tipo_dato": "integer",
-            "nombre": "id_cliente",
-            "es_llave_primaria": True,
-            "permite_nulo": False,
-            "es_unico": True,
-            "orden_de_posicion": 1,
-        },
-    ).json()
+    a1 = res_c1.json()["atributos"][0]
 
     c2_id = str(uuid.uuid4())
     client.post(
@@ -296,89 +318,116 @@ def test_quickstart_escenario_4_integridad_purga_y_cascada(client):
     ).json()
 
     r1_id = str(uuid.uuid4())
-    client.post(
+    fk1_id = str(uuid.uuid4())
+    res_r1 = client.post(
         f"/api/diagramas/{diagrama_id}/relaciones",
         json={
             "id_relacion": r1_id,
             "id_clase_origen": c1_id,
             "id_clase_destino": c2_id,
-            "tipo_relacion": "dependencia",
+            "tipo_relacion": "asociacion",
             "cardinalidad_origen": "1",
             "cardinalidad_destino": "0..*",
             "conector_origen": "right",
             "conector_destino": "left",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": fk1_id,
+                    "id_clase_fk": c2_id,
+                    "id_atributo_fk": a2["id"],
+                    "id_atributo_referenciado": a1["id"],
+                }
+            ],
         },
     )
+    assert res_r1.status_code == 201
 
-    fk1_id = str(uuid.uuid4())
-    client.post(
-        f"/api/relaciones/{r1_id}/referencias-fk",
-        json={
-            "id_referencia_fk": fk1_id,
-            "id_atributo_fk": a2["id"],
-            "id_atributo_referenciado": a1["id"],
-        },
-    )
-
-    # 1. Eliminar atributo cliente_id y verificar cascada sobre FK1
+    # 1. Eliminar atributo cliente_id y verificar cascada sobre FK1 y la relación
     del_a2 = client.delete(f"/api/clases/{c2_id}/atributos/{a2['id']}")
     assert del_a2.status_code == 204
     assert client.get(f"/api/relaciones/{r1_id}/referencias-fk/{fk1_id}").status_code == 404
-
-    # 2. Crear nuevo atributo FK en C2 y nueva referencia FK2
-    a2_nuevo = client.post(
-        f"/api/clases/{c2_id}/atributos",
-        json={
-            "tipo_dato": "integer",
-            "nombre": "cliente_id_v2",
-            "es_llave_primaria": False,
-            "permite_nulo": True,
-            "es_unico": False,
-            "orden_de_posicion": 1,
-        },
-    ).json()
-    fk2_id = str(uuid.uuid4())
-    client.post(
-        f"/api/relaciones/{r1_id}/referencias-fk",
-        json={
-            "id_referencia_fk": fk2_id,
-            "id_atributo_fk": a2_nuevo["id"],
-            "id_atributo_referenciado": a1["id"],
-        },
-    )
-    # Crear clase C3 y cambiar destino de R1 a C3
-    c3_id = str(uuid.uuid4())
-    client.post(
-        f"/api/diagramas/{diagrama_id}/clases",
-        json={"id_clase": c3_id, "nombre": "Factura", "posicion_x": 700, "posicion_y": 100, "ancho": 280},
-    )
-    patch_r1 = client.patch(
-        f"/api/diagramas/{diagrama_id}/relaciones/{r1_id}",
-        json={"id_clase_destino": c3_id},
-    )
-    assert patch_r1.status_code == 200
-    assert client.get(f"/api/relaciones/{r1_id}/referencias-fk/{fk2_id}").status_code == 404
-
-    # 3. Eliminar relación R1
-    del_r1 = client.delete(f"/api/diagramas/{diagrama_id}/relaciones/{r1_id}")
-    assert del_r1.status_code == 204
     assert client.get(f"/api/diagramas/{diagrama_id}/relaciones/{r1_id}").status_code == 404
 
-    # 4. Eliminar clase C2 y verificar cascada sobre nueva relación R2
+    # 2. Intentar cambio estructural en relación debe ser rechazado (inmutabilidad 016)
+    # Crear nueva relación R2
     r2_id = str(uuid.uuid4())
-    client.post(
+    fk2_id = str(uuid.uuid4())
+    fk2_attr_id = str(uuid.uuid4())
+    res_r2 = client.post(
         f"/api/diagramas/{diagrama_id}/relaciones",
         json={
             "id_relacion": r2_id,
             "id_clase_origen": c1_id,
             "id_clase_destino": c2_id,
-            "tipo_relacion": "dependencia",
+            "tipo_relacion": "asociacion",
             "cardinalidad_origen": "1",
-            "cardinalidad_destino": "1",
+            "cardinalidad_destino": "0..*",
             "conector_origen": "right",
             "conector_destino": "left",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": fk2_id,
+                    "id_clase_fk": c2_id,
+                    "id_atributo_referenciado": a1["id"],
+                    "atributo_fk_nuevo": {
+                        "id_atributo": fk2_attr_id,
+                        "nombre": "cliente_fk2",
+                        "tipo_dato": "integer",
+                        "permite_nulo": True,
+                    },
+                }
+            ],
+        },
+    )
+    assert res_r2.status_code == 201
+
+    # Cambiar destino de R2 es rechazado
+    c3_id = str(uuid.uuid4())
+    client.post(
+        f"/api/diagramas/{diagrama_id}/clases",
+        json={"id_clase": c3_id, "nombre": "Factura", "posicion_x": 700, "posicion_y": 100, "ancho": 280},
+    )
+    patch_r2 = client.patch(
+        f"/api/diagramas/{diagrama_id}/relaciones/{r2_id}",
+        json={"id_clase_destino": c3_id},
+    )
+    assert patch_r2.status_code == 400
+
+    # 3. Eliminar relación R2
+    del_r2 = client.delete(f"/api/diagramas/{diagrama_id}/relaciones/{r2_id}")
+    assert del_r2.status_code == 204
+    assert client.get(f"/api/diagramas/{diagrama_id}/relaciones/{r2_id}").status_code == 404
+
+    # 4. Eliminar clase C2 y verificar cascada sobre nueva relación R3
+    r3_id = str(uuid.uuid4())
+    fk3_id = str(uuid.uuid4())
+    fk3_attr_id = str(uuid.uuid4())
+    client.post(
+        f"/api/diagramas/{diagrama_id}/relaciones",
+        json={
+            "id_relacion": r3_id,
+            "id_clase_origen": c1_id,
+            "id_clase_destino": c2_id,
+            "tipo_relacion": "asociacion",
+            "cardinalidad_origen": "1",
+            "cardinalidad_destino": "0..*",
+            "conector_origen": "right",
+            "conector_destino": "left",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": fk3_id,
+                    "id_clase_fk": c2_id,
+                    "id_atributo_referenciado": a1["id"],
+                    "atributo_fk_nuevo": {
+                        "id_atributo": fk3_attr_id,
+                        "nombre": "cliente_fk3",
+                        "tipo_dato": "integer",
+                        "permite_nulo": True,
+                    },
+                }
+            ],
         },
     )
     del_c2 = client.delete(f"/api/diagramas/{diagrama_id}/clases/{c2_id}")
     assert del_c2.status_code == 204
-    assert client.get(f"/api/diagramas/{diagrama_id}/relaciones/{r2_id}").status_code == 404
+    assert client.get(f"/api/diagramas/{diagrama_id}/relaciones/{r3_id}").status_code == 404

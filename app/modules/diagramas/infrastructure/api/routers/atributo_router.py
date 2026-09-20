@@ -117,6 +117,13 @@ def obtener_atributo(
 
 
 
+from app.modules.diagramas.application.services.notificador_colaboracion import (
+    construir_efectos,
+    emitir_evento_mutacion_confirmada,
+    proyectar_clase,
+)
+
+
 @router.post(
     "/{id_clase}/atributos",
     response_model=AtributoRead,
@@ -141,6 +148,20 @@ def crear_atributo(
             atributo_id=datos.id_atributo,
         )
     )
+
+    clase = clase_repo.obtener_por_id(id_clase)
+    if clase:
+        efectos = construir_efectos(
+            clases_actualizadas=[proyectar_clase(clase_repo, atributo_repo, id_clase)]
+        )
+        emitir_evento_mutacion_confirmada(
+            diagrama_id=clase.id_diagrama,
+            action_id=None,
+            tipo_operacion="CREAR_ATRIBUTO",
+            emisor_id=usuario.user_id,
+            efectos=efectos,
+        )
+
     return _a_read(atributo)
 
 
@@ -169,6 +190,20 @@ def actualizar_atributo(
             id_atributo,
         )
     )
+
+    clase = clase_repo.obtener_por_id(id_clase)
+    if clase:
+        efectos = construir_efectos(
+            clases_actualizadas=[proyectar_clase(clase_repo, atributo_repo, id_clase)]
+        )
+        emitir_evento_mutacion_confirmada(
+            diagrama_id=clase.id_diagrama,
+            action_id=None,
+            tipo_operacion="ACTUALIZAR_ATRIBUTO",
+            emisor_id=usuario.user_id,
+            efectos=efectos,
+        )
+
     return _a_read(atributo)
 
 
@@ -185,7 +220,31 @@ def eliminar_atributo(
     uow: UoWDep,
 ) -> Response:
     proyecto_repo, diagrama_repo, clase_repo, atributo_repo, colaborador_repo, referencia_fk_repo, relacion_repo = _repositorios(session)
-    AtributoUseCase(
+    clase = clase_repo.obtener_por_id(id_clase)
+    diagrama_id = clase.id_diagrama if clase else None
+
+    resultado = AtributoUseCase(
         proyecto_repo, diagrama_repo, clase_repo, atributo_repo, uow, colaborador_repo, referencia_fk_repo, relacion_repo
     ).eliminar(AtributoCommand(usuario.user_id, id_clase, {}, id_atributo))
+
+    if diagrama_id:
+        clases_act = (
+            [proyectar_clase(clase_repo, atributo_repo, id_clase)]
+            if (id_clase not in resultado.clases_eliminadas and clase_repo.obtener_por_id(id_clase))
+            else []
+        )
+        efectos = construir_efectos(
+            clases_actualizadas=clases_act,
+            clases_eliminadas=list(resultado.clases_eliminadas),
+            relaciones_eliminadas=list(resultado.relaciones_eliminadas),
+            estructuras_nm_eliminadas=list(resultado.estructuras_nm_eliminadas),
+        )
+        emitir_evento_mutacion_confirmada(
+            diagrama_id=diagrama_id,
+            action_id=None,
+            tipo_operacion="ELIMINAR_ATRIBUTO",
+            emisor_id=usuario.user_id,
+            efectos=efectos,
+        )
+
     return Response(status_code=status.HTTP_204_NO_CONTENT)

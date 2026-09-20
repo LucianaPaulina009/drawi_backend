@@ -27,6 +27,15 @@ from app.modules.gestion_proyectos.domain.repositories.proyecto_repository impor
 from app.shared.application.ports import UnitOfWork
 
 
+from app.modules.diagramas.application.services.cascadas_diagrama import (
+    CascadasDiagramaService,
+    CierreCascadaResultado,
+)
+from app.modules.diagramas.domain.repositories.estructura_relacion_nm_repository import (
+    EstructuraRelacionNmRepository,
+)
+
+
 @dataclass(slots=True)
 class EliminarDiagramaCommand:
     propietario_id: str
@@ -44,6 +53,7 @@ class EliminarDiagramaUseCase:
         uow: UnitOfWork,
         relacion_repository: RelacionRepository | None = None,
         referencia_fk_repository: ReferenciaFKRepository | None = None,
+        estructura_repository: EstructuraRelacionNmRepository | None = None,
     ) -> None:
         self.proyecto_repository = proyecto_repository
         self.diagrama_repository = diagrama_repository
@@ -52,8 +62,11 @@ class EliminarDiagramaUseCase:
         self.uow = uow
         self.relacion_repository = relacion_repository
         self.referencia_fk_repository = referencia_fk_repository
+        self.estructura_repository = estructura_repository
 
-    def execute(self, command: EliminarDiagramaCommand) -> None:
+    def execute(
+        self, command: EliminarDiagramaCommand, confirmar: bool = True
+    ) -> CierreCascadaResultado:
         proyecto = self.proyecto_repository.obtener_por_id(command.proyecto_id)
         if proyecto is None or proyecto.propietario_id != command.propietario_id:
             raise ProyectoNoEncontradoException()
@@ -66,13 +79,26 @@ class EliminarDiagramaUseCase:
         ):
             raise UltimoDiagramaException()
 
-        if self.referencia_fk_repository is not None:
-            self.referencia_fk_repository.eliminar_por_diagrama(command.diagrama_id)
-        if self.relacion_repository is not None:
-            self.relacion_repository.eliminar_por_diagrama(command.diagrama_id)
+        if self.relacion_repository is not None and self.referencia_fk_repository is not None:
+            servicio = CascadasDiagramaService(
+                clase_repository=self.clase_repository,
+                atributo_repository=self.atributo_repository,
+                relacion_repository=self.relacion_repository,
+                referencia_fk_repository=self.referencia_fk_repository,
+                estructura_nm_repository=self.estructura_repository,
+            )
+            resultado = servicio.cerrar_por_diagrama(command.diagrama_id)
+        else:
+            if self.referencia_fk_repository is not None:
+                self.referencia_fk_repository.eliminar_por_diagrama(command.diagrama_id)
+            if self.relacion_repository is not None:
+                self.relacion_repository.eliminar_por_diagrama(command.diagrama_id)
+            self.atributo_repository.eliminar_por_diagrama(command.diagrama_id)
+            self.clase_repository.eliminar_por_diagrama(command.diagrama_id)
+            resultado = CierreCascadaResultado()
 
-        self.atributo_repository.eliminar_por_diagrama(command.diagrama_id)
-        self.clase_repository.eliminar_por_diagrama(command.diagrama_id)
         self.diagrama_repository.eliminar(command.diagrama_id)
-        self.uow.commit()
+        if confirmar:
+            self.uow.commit()
+        return resultado
 

@@ -57,11 +57,24 @@ class RelacionDTO:
     cardinalidad_destino: str
     conector_origen: str
     conector_destino: str
+    nombre: str | None = None
+
 
 
 @dataclass(frozen=True, slots=True)
 class RelacionDetalleDTO(RelacionDTO):
     referencias_fk: tuple[ReferenciaFKDTO, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class EstructuraRelacionNmDTO:
+    id: UUID
+    id_diagrama: UUID
+    id_clase_origen: UUID
+    id_clase_destino: UUID
+    id_clase_intermedia: UUID
+    id_relacion_origen: UUID
+    id_relacion_destino: UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,3 +89,4 @@ class DiagramaDTO:
 class DiagramaDetalleDTO(DiagramaDTO):
     clases: tuple[ClaseDetalleDTO, ...] = ()
     relaciones: tuple[RelacionDetalleDTO, ...] = ()
+    estructuras_nm: tuple[EstructuraRelacionNmDTO, ...] = ()

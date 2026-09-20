@@ -57,3 +57,74 @@ def obtener_diagrama_autorizado(
 
     return diagrama
 
+
+def validar_creacion_atributo(
+    *,
+    datos: dict,
+    atributos_existentes: list,
+) -> None:
+    """Asegura que no se cree una segunda PK ni se promueva procedencia indebida."""
+    from app.modules.diagramas.domain.exceptions import LlavePrimariaDuplicadaException
+    from app.modules.diagramas.domain.value_objects.procedencia_atributo import ProcedenciaAtributo
+
+    if datos.get("es_llave_primaria") is True:
+        raise LlavePrimariaDuplicadaException(
+            "No se permite crear una llave primaria adicional en una clase."
+        )
+    if "procedencia" in datos and datos["procedencia"] == ProcedenciaAtributo.SISTEMA_CLASE.value:
+        raise LlavePrimariaDuplicadaException(
+            "No se permite crear manualmente un atributo con procedencia sistema_clase."
+        )
+
+
+def validar_actualizacion_atributo(
+    *,
+    atributo,
+    datos: dict,
+    tiene_referencia_fk: bool = False,
+) -> None:
+    """Verifica qué campos están permitidos actualizar según el rol del atributo."""
+    from app.modules.diagramas.domain.exceptions import (
+        AtributoEstructuralInmutableException,
+        LlavePrimariaDuplicadaException,
+        LlavePrimariaProtegidaException,
+    )
+    from app.modules.diagramas.domain.value_objects.procedencia_atributo import ProcedenciaAtributo
+
+    if atributo.procedencia == ProcedenciaAtributo.SISTEMA_CLASE.value or atributo.es_llave_primaria:
+        campos_modificados = {k for k, v in datos.items() if v is not None and k != "nombre"}
+        if campos_modificados:
+            raise LlavePrimariaProtegidaException(
+                "La llave primaria de la clase solo permite modificar su nombre."
+            )
+
+    if atributo.procedencia == ProcedenciaAtributo.SISTEMA_FK.value or tiene_referencia_fk:
+        campos_modificados = {
+            k for k, v in datos.items() if v is not None and k not in ("nombre", "orden_de_posicion")
+        }
+        if campos_modificados:
+            raise AtributoEstructuralInmutableException(
+                "Los atributos FK o con referencias activas solo permiten modificar su nombre u orden."
+            )
+
+    if datos.get("es_llave_primaria") is True and not atributo.es_llave_primaria:
+        raise LlavePrimariaDuplicadaException(
+            "No se permite convertir un atributo existente en llave primaria."
+        )
+
+
+def validar_eliminacion_atributo(atributo) -> None:
+    """Impide la eliminación directa de llaves estructurales de una clase."""
+    from app.modules.diagramas.domain.exceptions import (
+        LlaveForaneaProtegidaException,
+        LlavePrimariaProtegidaException,
+    )
+    from app.modules.diagramas.domain.value_objects.procedencia_atributo import ProcedenciaAtributo
+
+    if atributo.procedencia == ProcedenciaAtributo.SISTEMA_CLASE.value or atributo.es_llave_primaria:
+        raise LlavePrimariaProtegidaException(
+            "No se puede eliminar la llave primaria del sistema de una clase."
+        )
+    if atributo.procedencia == ProcedenciaAtributo.SISTEMA_FK.value:
+        raise LlaveForaneaProtegidaException()
+

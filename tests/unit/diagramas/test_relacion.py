@@ -6,6 +6,7 @@ from app.modules.diagramas.domain.entities.relacion import Relacion
 from app.modules.diagramas.domain.exceptions import (
     CardinalidadInvalidaException,
     ConectorInvalidoException,
+    RelacionEstructuralInmutableException,
     TipoRelacionInvalidoException,
 )
 from app.modules.diagramas.domain.value_objects.conector import Conector
@@ -79,12 +80,11 @@ def test_actualizar_relacion_parcial():
         conector_destino="bottom",
     )
 
-    relacion.actualizar(
-        cardinalidad_destino="1..*",
-        conector_destino="right",
-    )
+    # Actualizar nombre funciona en asociación
+    relacion.actualizar(nombre="Trabaja")
+    assert relacion.nombre == "Trabaja"
 
-    assert relacion.cardinalidad_destino == "1..*"
-    assert relacion.conector_destino == "right"
-    assert relacion.cardinalidad_origen == "1"
-    assert relacion.conector_origen == "top"
+    # Actualizar campos estructurales debe ser rechazado
+    with pytest.raises(RelacionEstructuralInmutableException):
+        relacion.actualizar(cardinalidad_destino="1..*")
+

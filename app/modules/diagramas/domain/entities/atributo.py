@@ -3,7 +3,10 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from app.modules.diagramas.domain.exceptions import (
+    AtributoEstructuralInmutableException,
     ConfiguracionAtributoInvalidaException,
+    LlavePrimariaDuplicadaException,
+    LlavePrimariaProtegidaException,
     NombreAtributoInvalidoException,
     OrdenAtributoInvalidoException,
 )
@@ -105,6 +108,42 @@ class Atributo:
         valor_por_defecto: str | None | object = NO_DEFINIDO,
         orden_de_posicion: int | object = NO_DEFINIDO,
     ) -> None:
+        if self.procedencia == ProcedenciaAtributo.SISTEMA_CLASE.value or self.es_llave_primaria:
+            if (
+                (tipo_dato is not NO_DEFINIDO and self.normalizar_tipo(tipo_dato) != self.tipo_dato)
+                or (permite_nulo is not NO_DEFINIDO and bool(permite_nulo) != self.permite_nulo)
+                or (es_llave_primaria is not NO_DEFINIDO and not bool(es_llave_primaria))
+                or (es_unico is not NO_DEFINIDO and bool(es_unico) != self.es_unico)
+                or (longitud is not NO_DEFINIDO and longitud != self.longitud)
+                or (precision is not NO_DEFINIDO and precision != self.precision)
+                or (escala is not NO_DEFINIDO and escala != self.escala)
+                or (valor_por_defecto is not NO_DEFINIDO and valor_por_defecto != self.valor_por_defecto)
+                or (orden_de_posicion is not NO_DEFINIDO and orden_de_posicion != self.orden_de_posicion)
+            ):
+                raise LlavePrimariaProtegidaException(
+                    "La llave primaria del sistema solo permite modificar su nombre."
+                )
+
+        if self.procedencia == ProcedenciaAtributo.SISTEMA_FK.value:
+            if (
+                (tipo_dato is not NO_DEFINIDO and self.normalizar_tipo(tipo_dato) != self.tipo_dato)
+                or (permite_nulo is not NO_DEFINIDO and bool(permite_nulo) != self.permite_nulo)
+                or (es_llave_primaria is not NO_DEFINIDO and bool(es_llave_primaria) != self.es_llave_primaria)
+                or (es_unico is not NO_DEFINIDO and bool(es_unico) != self.es_unico)
+                or (longitud is not NO_DEFINIDO and longitud != self.longitud)
+                or (precision is not NO_DEFINIDO and precision != self.precision)
+                or (escala is not NO_DEFINIDO and escala != self.escala)
+                or (valor_por_defecto is not NO_DEFINIDO and valor_por_defecto != self.valor_por_defecto)
+            ):
+                raise AtributoEstructuralInmutableException(
+                    "Los atributos FK solo permiten modificar su nombre u orden de posición."
+                )
+
+        if not self.es_llave_primaria and es_llave_primaria is not NO_DEFINIDO and bool(es_llave_primaria):
+            raise LlavePrimariaDuplicadaException(
+                "No se permite convertir un atributo normal en llave primaria."
+            )
+
         nuevo_tipo = (
             self.normalizar_tipo(tipo_dato)
             if tipo_dato is not NO_DEFINIDO

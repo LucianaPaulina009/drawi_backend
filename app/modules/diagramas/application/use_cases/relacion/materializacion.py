@@ -24,6 +24,12 @@ def _maximo(cardinalidad: str) -> int | None:
 
 
 def requiere_materializacion(relacion: Relacion) -> bool:
+    if relacion.tipo_relacion in {
+        TipoRelacion.HERENCIA.value,
+        TipoRelacion.REALIZACION.value,
+        TipoRelacion.DEPENDENCIA.value,
+    }:
+        return True
     if relacion.tipo_relacion not in TIPOS_RELACIONALES:
         return False
     origen_muchos = _maximo(relacion.cardinalidad_origen) is None or _maximo(relacion.cardinalidad_origen) > 1
@@ -38,6 +44,15 @@ def referencia_materializa_relacion(
         return False
     if atributo_referenciado.id_clase not in {relacion.id_clase_origen, relacion.id_clase_destino}:
         return False
+    if relacion.tipo_relacion in {
+        TipoRelacion.HERENCIA.value,
+        TipoRelacion.REALIZACION.value,
+        TipoRelacion.DEPENDENCIA.value,
+    }:
+        return (
+            atributo_fk.id_clase == relacion.id_clase_origen
+            and atributo_referenciado.id_clase == relacion.id_clase_destino
+        )
     if relacion.id_clase_origen == relacion.id_clase_destino:
         return True
     origen_muchos = _maximo(relacion.cardinalidad_origen) is None or _maximo(relacion.cardinalidad_origen) > 1

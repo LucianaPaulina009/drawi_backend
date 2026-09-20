@@ -27,6 +27,12 @@ from app.modules.diagramas.infrastructure.persistence.models.relacion_model impo
 from app.modules.diagramas.infrastructure.persistence.models.referencia_fk_model import (
     ReferenciaFKModel,
 )
+from app.modules.diagramas.infrastructure.persistence.models.estructura_relacion_nm_model import (
+    EstructuraRelacionNmModel,
+)
+from app.modules.diagramas.infrastructure.persistence.models.operacion_diagrama_model import (
+    OperacionDiagramaModel,
+)
 from app.modules.gestion_colaboradores.infrastructure.persistence.models.colaborador_proyecto_model import (
     ColaboradorProyectoModel,
 )

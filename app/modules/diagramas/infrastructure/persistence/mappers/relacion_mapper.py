@@ -21,6 +21,7 @@ class RelacionMapper:
             cardinalidad_destino=modelo.cardinalidad_destino,
             conector_origen=modelo.conector_origen,
             conector_destino=modelo.conector_destino,
+            nombre=modelo.nombre,
         )
 
     @staticmethod
@@ -35,4 +36,5 @@ class RelacionMapper:
             cardinalidad_destino=entidad.cardinalidad_destino,
             conector_origen=entidad.conector_origen,
             conector_destino=entidad.conector_destino,
+            nombre=entidad.nombre,
         )

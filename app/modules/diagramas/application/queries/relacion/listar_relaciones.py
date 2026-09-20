@@ -84,6 +84,7 @@ class ListarRelacionesQueryHandler:
                 cardinalidad_destino=rel.cardinalidad_destino,
                 conector_origen=rel.conector_origen,
                 conector_destino=rel.conector_destino,
+                nombre=rel.nombre,
                 referencias_fk=tuple(referencias_por_relacion.get(rel.id, [])),
             )
             for rel in relaciones

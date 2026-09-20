@@ -26,3 +26,5 @@ class RelacionModel(BaseModel, table=True):
     cardinalidad_destino: str = Field(nullable=False)
     conector_origen: str = Field(nullable=False)
     conector_destino: str = Field(nullable=False)
+    nombre: str | None = Field(default=None, nullable=True, max_length=100)
+

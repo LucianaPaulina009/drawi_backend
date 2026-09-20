@@ -58,6 +58,7 @@ class SQLModelRelacionRepository(RelacionRepository):
             existente.cardinalidad_destino = relacion.cardinalidad_destino
             existente.conector_origen = relacion.conector_origen
             existente.conector_destino = relacion.conector_destino
+            existente.nombre = relacion.nombre
             existente.fecha_actualizacion = ahora_utc()
             self.bd.add(existente)
             return

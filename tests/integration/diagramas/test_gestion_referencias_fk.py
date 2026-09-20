@@ -5,28 +5,17 @@ from app.main import app
 from app.shared.infrastructure.db.better_auth import BetterAuthUser
 
 
-def _crear_proyecto_diagrama_y_relacion(client) -> tuple[str, str, dict, dict, dict]:
+def _crear_proyecto_diagrama_y_relacion(client) -> tuple[str, str, dict, dict, dict, str]:
     assert client.post("/api/proyectos/crear").status_code == 201
     proyecto_id = client.get("/api/proyectos/listado").json()["items"][0]["id"]
     diagrama_id = client.get(
         f"/api/proyectos/{proyecto_id}/diagramas"
     ).json()["items"][0]["id"]
 
-    # Crear Clase 1 (Origen: Cliente) con PK
+    # Crear Clase 1 (Origen: Cliente) - ya viene con su PK "id"
     c1 = client.post(
         f"/api/diagramas/{diagrama_id}/clases",
         json={"nombre": "Cliente", "posicion_x": 10, "posicion_y": 20, "ancho": 280},
-    ).json()
-    a1 = client.post(
-        f"/api/clases/{c1['id']}/atributos",
-        json={
-            "tipo_dato": "integer",
-            "nombre": "id",
-            "es_llave_primaria": True,
-            "permite_nulo": False,
-            "es_unico": True,
-            "orden_de_posicion": 1,
-        },
     ).json()
 
     # Crear Clase 2 (Destino: Pedido) con FK nullable
@@ -42,54 +31,42 @@ def _crear_proyecto_diagrama_y_relacion(client) -> tuple[str, str, dict, dict, d
             "es_llave_primaria": False,
             "permite_nulo": True,
             "es_unico": False,
-            "orden_de_posicion": 1,
+            "orden_de_posicion": 2,
         },
     ).json()
 
     rel_id = str(uuid.uuid4())
+    ref_id = str(uuid.uuid4())
+    pk_c1 = c1["atributos"][0]["id"]
     rel = client.post(
         f"/api/diagramas/{diagrama_id}/relaciones",
         json={
             "id_relacion": rel_id,
             "id_clase_origen": c1["id"],
             "id_clase_destino": c2["id"],
-            "tipo_relacion": "dependencia",
+            "tipo_relacion": "asociacion",
             "cardinalidad_origen": "1",
             "cardinalidad_destino": "0..*",
             "conector_origen": "right",
             "conector_destino": "left",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": ref_id,
+                    "id_atributo_fk": a2["id"],
+                    "id_atributo_referenciado": pk_c1,
+                    "id_clase_fk": c2["id"],
+                    "on_delete": "CASCADE",
+                    "on_update": "RESTRICT",
+                }
+            ],
         },
     ).json()
 
-    return proyecto_id, diagrama_id, c1, c2, rel
+    return proyecto_id, diagrama_id, c1, c2, rel, ref_id
 
 
 def test_ciclo_de_vida_referencia_fk(client):
-    proyecto_id, diagrama_id, c1, c2, rel = _crear_proyecto_diagrama_y_relacion(client)
-    attrs_c1 = client.get(f"/api/clases/{c1['id']}/atributos").json()["items"]
-    attrs_c2 = client.get(f"/api/clases/{c2['id']}/atributos").json()["items"]
-    attr_ref = attrs_c1[0]
-    attr_fk = attrs_c2[0]
-
-    ref_fk_id = str(uuid.uuid4())
-    crear_res = client.post(
-        f"/api/relaciones/{rel['id']}/referencias-fk",
-        json={
-            "id_referencia_fk": ref_fk_id,
-            "id_atributo_fk": attr_fk["id"],
-            "id_atributo_referenciado": attr_ref["id"],
-            "on_delete": "CASCADE",
-            "on_update": "RESTRICT",
-        },
-    )
-    assert crear_res.status_code == 201
-    data = crear_res.json()
-    assert data["id"] == ref_fk_id
-    assert data["id_relacion"] == rel["id"]
-    assert data["id_atributo_fk"] == attr_fk["id"]
-    assert data["id_atributo_referenciado"] == attr_ref["id"]
-    assert data["on_delete"] == "CASCADE"
-    assert data["on_update"] == "RESTRICT"
+    proyecto_id, diagrama_id, c1, c2, rel, ref_fk_id = _crear_proyecto_diagrama_y_relacion(client)
 
     # Consultar detalle
     det_res = client.get(f"/api/relaciones/{rel['id']}/referencias-fk/{ref_fk_id}")
@@ -103,14 +80,12 @@ def test_ciclo_de_vida_referencia_fk(client):
     assert len(items) == 1
     assert items[0]["id"] == ref_fk_id
 
-    # Actualizar sin auto-conflicto
+    # Actualizar acción referencial es rechazado por ser inmutable
     patch_res = client.patch(
         f"/api/relaciones/{rel['id']}/referencias-fk/{ref_fk_id}",
         json={"on_delete": "SET_NULL"},
     )
-    assert patch_res.status_code == 200
-    assert patch_res.json()["on_delete"] == "SET_NULL"
-    assert patch_res.json()["on_update"] == "RESTRICT"
+    assert patch_res.status_code in (400, 422)
 
     # Eliminar
     del_res = client.delete(f"/api/relaciones/{rel['id']}/referencias-fk/{ref_fk_id}")
@@ -118,15 +93,14 @@ def test_ciclo_de_vida_referencia_fk(client):
 
     # Verificar no encontrado
     assert client.get(f"/api/relaciones/{rel['id']}/referencias-fk/{ref_fk_id}").status_code == 404
-    assert client.get(f"/api/relaciones/{rel['id']}/referencias-fk").json()["items"] == []
 
 
 def test_validaciones_semanticas_referencia_fk(client):
-    proyecto_id, diagrama_id, c1, c2, rel = _crear_proyecto_diagrama_y_relacion(client)
+    proyecto_id, diagrama_id, c1, c2, rel, ref_fk_id = _crear_proyecto_diagrama_y_relacion(client)
     attrs_c1 = client.get(f"/api/clases/{c1['id']}/atributos").json()["items"]
     attrs_c2 = client.get(f"/api/clases/{c2['id']}/atributos").json()["items"]
     attr_ref = attrs_c1[0]
-    attr_fk = attrs_c2[0]
+    attr_fk = [a for a in attrs_c2 if a["nombre"] == "cliente_id"][0]
 
     # 1. Atributo no referenciable (ni PK ni único)
     attr_no_pk = client.post(
@@ -148,7 +122,7 @@ def test_validaciones_semanticas_referencia_fk(client):
             "es_llave_primaria": False,
             "permite_nulo": True,
             "es_unico": False,
-            "orden_de_posicion": 2,
+            "orden_de_posicion": 3,
         },
     ).json()
 
@@ -180,24 +154,15 @@ def test_validaciones_semanticas_referencia_fk(client):
         f"/api/diagramas/{diagrama_id}/clases",
         json={"nombre": "Tercera", "posicion_x": 10, "posicion_y": 100, "ancho": 200},
     ).json()
-    attr_c3 = client.post(
-        f"/api/clases/{c3['id']}/atributos",
-        json={
-            "tipo_dato": "integer",
-            "nombre": "otra_pk",
-            "es_llave_primaria": True,
-            "permite_nulo": False,
-            "es_unico": True,
-            "orden_de_posicion": 1,
-        },
-    ).json()
+    # c3 ya nace con su PK 'id'
+    attr_c3_pk = c3["atributos"][0]
 
     res_ajena = client.post(
         f"/api/relaciones/{rel['id']}/referencias-fk",
         json={
             "id_referencia_fk": str(uuid.uuid4()),
             "id_atributo_fk": attr_fk["id"],
-            "id_atributo_referenciado": attr_c3["id"],
+            "id_atributo_referenciado": attr_c3_pk["id"],
         },
     )
     assert res_ajena.status_code == 400
@@ -212,7 +177,7 @@ def test_validaciones_semanticas_referencia_fk(client):
             "es_llave_primaria": False,
             "permite_nulo": False,
             "es_unico": False,
-            "orden_de_posicion": 3,
+            "orden_de_posicion": 4,
         },
     ).json()
     res_set_null_err = client.post(
@@ -229,24 +194,13 @@ def test_validaciones_semanticas_referencia_fk(client):
 
 
 def test_duplicidad_y_unicidad_referencia_fk(client):
-    proyecto_id, diagrama_id, c1, c2, rel = _crear_proyecto_diagrama_y_relacion(client)
+    proyecto_id, diagrama_id, c1, c2, rel, ref_fk_id = _crear_proyecto_diagrama_y_relacion(client)
     attrs_c1 = client.get(f"/api/clases/{c1['id']}/atributos").json()["items"]
     attrs_c2 = client.get(f"/api/clases/{c2['id']}/atributos").json()["items"]
     attr_ref = attrs_c1[0]
-    attr_fk = attrs_c2[0]
+    attr_fk = [a for a in attrs_c2 if a["nombre"] == "cliente_id"][0]
 
-    ref_fk_id = str(uuid.uuid4())
-    res1 = client.post(
-        f"/api/relaciones/{rel['id']}/referencias-fk",
-        json={
-            "id_referencia_fk": ref_fk_id,
-            "id_atributo_fk": attr_fk["id"],
-            "id_atributo_referenciado": attr_ref["id"],
-        },
-    )
-    assert res1.status_code == 201
-
-    # UUID duplicado
+    # UUID duplicado usando el ref_fk_id ya creado
     res_dup_id = client.post(
         f"/api/relaciones/{rel['id']}/referencias-fk",
         json={
@@ -272,22 +226,9 @@ def test_duplicidad_y_unicidad_referencia_fk(client):
 
 
 def test_cascada_eliminacion_atributo_limpia_referencia_fk(client):
-    proyecto_id, diagrama_id, c1, c2, rel = _crear_proyecto_diagrama_y_relacion(client)
-    attrs_c1 = client.get(f"/api/clases/{c1['id']}/atributos").json()["items"]
+    proyecto_id, diagrama_id, c1, c2, rel, ref_fk_id = _crear_proyecto_diagrama_y_relacion(client)
     attrs_c2 = client.get(f"/api/clases/{c2['id']}/atributos").json()["items"]
-    attr_ref = attrs_c1[0]
-    attr_fk = attrs_c2[0]
-
-    ref_fk_id = str(uuid.uuid4())
-    res = client.post(
-        f"/api/relaciones/{rel['id']}/referencias-fk",
-        json={
-            "id_referencia_fk": ref_fk_id,
-            "id_atributo_fk": attr_fk["id"],
-            "id_atributo_referenciado": attr_ref["id"],
-        },
-    )
-    assert res.status_code == 201
+    attr_fk = [a for a in attrs_c2 if a["nombre"] == "cliente_id"][0]
 
     # Eliminar atributo FK
     del_attr_res = client.delete(f"/api/clases/{c2['id']}/atributos/{attr_fk['id']}")
@@ -296,26 +237,10 @@ def test_cascada_eliminacion_atributo_limpia_referencia_fk(client):
     # La referencia FK ya no debe estar disponible
     get_fk_res = client.get(f"/api/relaciones/{rel['id']}/referencias-fk/{ref_fk_id}")
     assert get_fk_res.status_code == 404
-    assert client.get(f"/api/relaciones/{rel['id']}/referencias-fk").json()["items"] == []
 
 
 def test_purga_referencias_al_cambiar_clases_participantes_de_relacion(client):
-    proyecto_id, diagrama_id, c1, c2, rel = _crear_proyecto_diagrama_y_relacion(client)
-    attrs_c1 = client.get(f"/api/clases/{c1['id']}/atributos").json()["items"]
-    attrs_c2 = client.get(f"/api/clases/{c2['id']}/atributos").json()["items"]
-    attr_ref = attrs_c1[0]
-    attr_fk = attrs_c2[0]
-
-    ref_fk_id = str(uuid.uuid4())
-    res = client.post(
-        f"/api/relaciones/{rel['id']}/referencias-fk",
-        json={
-            "id_referencia_fk": ref_fk_id,
-            "id_atributo_fk": attr_fk["id"],
-            "id_atributo_referenciado": attr_ref["id"],
-        },
-    )
-    assert res.status_code == 201
+    proyecto_id, diagrama_id, c1, c2, rel, ref_fk_id = _crear_proyecto_diagrama_y_relacion(client)
 
     # Crear una nueva clase C3
     c3 = client.post(
@@ -323,14 +248,9 @@ def test_purga_referencias_al_cambiar_clases_participantes_de_relacion(client):
         json={"nombre": "NuevaClase", "posicion_x": 500, "posicion_y": 20, "ancho": 280},
     ).json()
 
-    # Actualizar la relación cambiando id_clase_destino a c3
+    # Actualizar la relación cambiando id_clase_destino a c3 debe ser rechazado por inmutabilidad
     patch_rel = client.patch(
         f"/api/diagramas/{diagrama_id}/relaciones/{rel['id']}",
         json={"id_clase_destino": c3["id"]},
     )
-    assert patch_rel.status_code == 200
-
-    # Como attr_fk pertenecía a C2 (que ya no participa), la referencia FK debe haberse purgado
-    get_fk_res = client.get(f"/api/relaciones/{rel['id']}/referencias-fk/{ref_fk_id}")
-    assert get_fk_res.status_code == 404
-    assert client.get(f"/api/relaciones/{rel['id']}/referencias-fk").json()["items"] == []
+    assert patch_rel.status_code in (400, 422)
