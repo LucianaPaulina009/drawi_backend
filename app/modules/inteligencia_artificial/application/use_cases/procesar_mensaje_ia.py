@@ -39,6 +39,7 @@ from app.modules.inteligencia_artificial.domain.entities.interaccion_ia import (
 )
 from app.modules.inteligencia_artificial.domain.exceptions import (
     ClaveIdempotenciaConflictoException,
+    PlanIaInvalidoException,
 )
 from app.modules.inteligencia_artificial.domain.repositories.interaccion_ia_repository import (
     InteraccionIaRepository,
@@ -155,10 +156,30 @@ class ProcesarMensajeIaUseCase:
                     clases_existentes=clases_existentes,
                 )
 
+            respuesta_final = self._construir_respuesta_ia(
+                respuesta_gemini=interpretacion.respuesta_usuario,
+                resultados_pasos=resultados_pasos,
+            )
+
             interaccion.completar(
-                respuesta_ia=interpretacion.respuesta_usuario,
+                respuesta_ia=respuesta_final,
                 modelo_utilizado=resultado_gemini.modelo,
                 detalle_ejecucion=resultados_pasos,
+            )
+            self.interaccion_repo.guardar(interaccion)
+            self.uow.commit()
+            return interaccion
+
+        except PlanIaInvalidoException as err:
+            interaccion.completar(
+                respuesta_ia=f"No se pudo realizar la operación: {err.message}",
+                modelo_utilizado=resultado_gemini.modelo if "resultado_gemini" in locals() else None,
+                detalle_ejecucion=[{
+                    "paso": 1,
+                    "tipo": "planificacion",
+                    "estado": "rechazado",
+                    "motivo": err.message,
+                }],
             )
             self.interaccion_repo.guardar(interaccion)
             self.uow.commit()
@@ -172,3 +193,60 @@ class ProcesarMensajeIaUseCase:
             self.interaccion_repo.guardar(interaccion)
             self.uow.commit()
             raise
+
+    @staticmethod
+    def _construir_respuesta_ia(
+        respuesta_gemini: str,
+        resultados_pasos: list[dict[str, Any]] | None,
+    ) -> str:
+        """Determina la respuesta final visible al usuario basándose en los resultados reales de la ejecución."""
+        if not resultados_pasos:
+            return respuesta_gemini
+
+        completados = [p for p in resultados_pasos if p.get("estado") == "completado"]
+        rechazados = [p for p in resultados_pasos if p.get("estado") in ("rechazado", "aclaracion_requerida")]
+        fallidos = [p for p in resultados_pasos if p.get("estado") == "fallido"]
+        omitidos = [p for p in resultados_pasos if p.get("estado") == "omitido"]
+
+        # Si todos los pasos se completaron exitosamente
+        if len(completados) == len(resultados_pasos):
+            return respuesta_gemini if respuesta_gemini and respuesta_gemini.strip() else "Operaciones realizadas exitosamente."
+
+        # Si ningún paso se completó
+        if not completados:
+            if rechazados:
+                primer_rechazo = rechazados[0]
+                motivo = primer_rechazo.get("motivo") or primer_rechazo.get("error") or "La operación no es permitida por las reglas del modelo."
+                if primer_rechazo.get("estado") == "aclaracion_requerida":
+                    return motivo
+                return f"No se pudo realizar la operación: {motivo}"
+            if fallidos:
+                primer_fallo = fallidos[0]
+                error = primer_fallo.get("error") or "Error inesperado al ejecutar la operación."
+                return f"No se pudo realizar la operación debido a un error: {error}"
+            return "No se pudo realizar la operación solicitada."
+
+        # Mixto: algunos se completaron y otros fallaron/fueron rechazados
+        partes = []
+        nombres_completados = []
+        for p in completados:
+            tipo = p.get("tipo", "acción")
+            nombre = p.get("nombre")
+            if nombre:
+                nombres_completados.append(f"{tipo} '{nombre}'")
+            else:
+                nombres_completados.append(f"{tipo}")
+        partes.append(f"Se completó exitosamente: {', '.join(nombres_completados)}.")
+
+        for p in rechazados:
+            motivo = p.get("motivo") or "rechazado por el dominio"
+            partes.append(f"No se pudo ejecutar {p.get('tipo')}: {motivo}")
+
+        for p in fallidos:
+            error = p.get("error") or "error inesperado"
+            partes.append(f"Falló {p.get('tipo')}: {error}")
+
+        if omitidos:
+            partes.append(f"Se omitieron {len(omitidos)} acción(es) posterior(es).")
+
+        return "\n".join(partes)

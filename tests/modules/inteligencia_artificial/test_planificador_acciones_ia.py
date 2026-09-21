@@ -78,3 +78,49 @@ def test_planificador_acepta_clases_existentes_del_diagrama():
     ordenadas = PlanificadorAccionesIa.planificar(acciones, clases_existentes=clases_existentes)
     assert len(ordenadas) == 1
     assert ordenadas[0].nombre == "telefono"
+
+
+def test_planificador_estructura_nm_con_atributos():
+    from app.modules.inteligencia_artificial.application.services.validador_respuesta_ia import (
+        AccionCrearEstructuraNmSchema,
+    )
+
+    clases_existentes = {"cliente": uuid4(), "vehiculo": uuid4()}
+    acciones = [
+        AccionCrearAtributoSchema(
+            clase_referencia="Cliente_Vehiculo",
+            nombre="prueba",
+            tipo_dato="text",
+        ),
+        AccionCrearEstructuraNmSchema(
+            clase_origen_referencia="Cliente",
+            clase_destino_referencia="Vehiculo",
+            nombre_intermedia="Cliente_Vehiculo",
+        ),
+    ]
+
+    ordenadas = PlanificadorAccionesIa.planificar(acciones, clases_existentes=clases_existentes)
+    assert len(ordenadas) == 2
+    # La estructura N:M debe ordenarse antes del atributo de la tabla intermedia
+    assert isinstance(ordenadas[0], AccionCrearEstructuraNmSchema)
+    assert isinstance(ordenadas[1], AccionCrearAtributoSchema)
+    assert ordenadas[1].clase_referencia == "Cliente_Vehiculo"
+    assert ordenadas[1].nombre == "prueba"
+
+
+def test_planificador_estructura_nm_falla_si_origen_desconocido():
+    from app.modules.inteligencia_artificial.application.services.validador_respuesta_ia import (
+        AccionCrearEstructuraNmSchema,
+    )
+
+    clases_existentes = {"vehiculo": uuid4()}
+    acciones = [
+        AccionCrearEstructuraNmSchema(
+            clase_origen_referencia="Inexistente",
+            clase_destino_referencia="Vehiculo",
+            nombre_intermedia="Inexistente_Vehiculo",
+        )
+    ]
+    with pytest.raises(PlanIaInvalidoException):
+        PlanificadorAccionesIa.planificar(acciones, clases_existentes=clases_existentes)
+

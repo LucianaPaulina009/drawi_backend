@@ -8,13 +8,14 @@ from app.modules.diagramas.application.use_cases.relacion.materializacion import
 from app.modules.diagramas.application.validaciones import obtener_diagrama_autorizado
 from app.modules.diagramas.domain.entities.atributo import Atributo
 from app.modules.diagramas.domain.entities.relacion import Relacion
-from app.modules.diagramas.domain.exceptions import AtributoYaExisteException, ClaseNoEncontradaException, RelacionYaExisteException
+from app.modules.diagramas.domain.exceptions import AtributoYaExisteException, ClaseNoEncontradaException, ConectorOcupadoException, RelacionYaExisteException
 from app.modules.diagramas.domain.repositories.atributo_repository import AtributoRepository
 from app.modules.diagramas.domain.repositories.clase_repository import ClaseRepository
 from app.modules.diagramas.domain.repositories.diagrama_repository import DiagramaRepository
 from app.modules.diagramas.domain.repositories.referencia_fk_repository import ReferenciaFKRepository
 from app.modules.diagramas.domain.repositories.relacion_repository import RelacionRepository
 from app.modules.diagramas.domain.value_objects.procedencia_atributo import ProcedenciaAtributo
+from app.modules.diagramas.domain.value_objects.conector import Conector
 from app.modules.gestion_colaboradores.domain.repositories.colaborador_proyecto_repository import ColaboradorProyectoRepository
 from app.modules.gestion_proyectos.domain.repositories.proyecto_repository import ProyectoRepository
 from app.shared.application.ports import UnitOfWork
@@ -87,6 +88,21 @@ class CrearRelacionUseCase:
             clase = self.clase_repository.obtener_por_id(clase_id)
             if clase is None or clase.id_diagrama != command.diagrama_id:
                 raise ClaseNoEncontradaException()
+        relaciones_existentes = self.relacion_repository.listar_por_diagrama(command.diagrama_id)
+        ocupaciones = {
+            (rel.id_clase_origen, Conector.a_handle_canonico(rel.conector_origen))
+            for rel in relaciones_existentes
+        }
+        ocupaciones.update(
+            (rel.id_clase_destino, Conector.a_handle_canonico(rel.conector_destino))
+            for rel in relaciones_existentes
+        )
+        extremos_nuevos = {
+            (command.id_clase_origen, Conector.a_handle_canonico(command.conector_origen)),
+            (command.id_clase_destino, Conector.a_handle_canonico(command.conector_destino)),
+        }
+        if len(extremos_nuevos) != 2 or ocupaciones.intersection(extremos_nuevos):
+            raise ConectorOcupadoException()
         relacion = Relacion.crear(id=command.id_relacion, id_diagrama=command.diagrama_id,
             id_clase_origen=command.id_clase_origen, id_clase_destino=command.id_clase_destino,
             tipo_relacion=command.tipo_relacion, cardinalidad_origen=command.cardinalidad_origen,

@@ -130,6 +130,11 @@ class ConectorInvalidoException(ValidationException):
     message = "El conector especificado no es válido."
 
 
+class ConectorOcupadoException(ConflictException):
+    code = "CONECTOR_OCUPADO"
+    message = "El punto de conexión seleccionado ya está ocupado por otra relación."
+
+
 class ActualizacionRelacionVaciaException(ValidationException):
     code = "ACTUALIZACION_RELACION_VACIA"
     message = "Debe proporcionar al menos un campo para actualizar la relación."

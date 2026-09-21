@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from uuid import UUID
 
+from app.modules.diagramas.application.services.geometria_conectores import (
+    calcular_mejores_conectores,
+)
 from app.modules.diagramas.application.services.idempotencia_diagrama import IdempotenciaDiagramaService
 from app.modules.diagramas.application.validaciones import obtener_diagrama_autorizado
 from app.modules.diagramas.domain.entities.atributo import Atributo
@@ -45,6 +48,8 @@ class CrearEstructuraRelacionNmCommand:
     posicion_x: float
     posicion_y: float
     ancho: float = 280.0
+    conector_origen: str | None = None
+    conector_destino: str | None = None
 
 
 class CrearEstructuraRelacionNmUseCase:
@@ -141,6 +146,16 @@ class CrearEstructuraRelacionNmUseCase:
         self.atributo_repository.guardar(fk_origen)
         self.atributo_repository.guardar(fk_destino)
 
+        conector_orig = command.conector_origen
+        conector_dest = command.conector_destino
+        if not conector_orig or not conector_dest:
+            relaciones_existentes = self.relacion_repository.listar_por_diagrama(command.diagrama_id)
+            calc_orig, calc_dest = calcular_mejores_conectores(
+                origen, destino, relaciones_existentes
+            )
+            conector_orig = conector_orig or calc_orig
+            conector_dest = conector_dest or calc_dest
+
         rel_origen = Relacion.crear(
             id=command.id_relacion_origen,
             id_diagrama=command.diagrama_id,
@@ -149,7 +164,7 @@ class CrearEstructuraRelacionNmUseCase:
             tipo_relacion="asociacion",
             cardinalidad_origen="1",
             cardinalidad_destino="0..*",
-            conector_origen="right",
+            conector_origen=conector_orig,
             conector_destino="left",
             nombre="Asociación",
         )
@@ -161,7 +176,7 @@ class CrearEstructuraRelacionNmUseCase:
             tipo_relacion="asociacion",
             cardinalidad_origen="1",
             cardinalidad_destino="0..*",
-            conector_origen="right",
+            conector_origen=conector_dest,
             conector_destino="left",
             nombre="Asociación",
         )

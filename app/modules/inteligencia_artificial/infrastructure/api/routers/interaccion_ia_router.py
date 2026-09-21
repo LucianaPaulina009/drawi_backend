@@ -227,6 +227,101 @@ def enviar_mensaje_ia(
         colaborador_repository=colaborador_repo,
     )
 
+    from app.modules.diagramas.application.services.idempotencia_diagrama import (
+        IdempotenciaDiagramaService,
+    )
+    from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_operacion_diagrama_repository import (
+        SQLModelOperacionDiagramaRepository,
+    )
+    from app.modules.diagramas.application.use_cases.clase.actualizar_clase import (
+        ActualizarClaseUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.clase.eliminar_clase import (
+        EliminarClaseUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.relacion.actualizar_relacion import (
+        ActualizarRelacionUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.relacion.eliminar_relacion import (
+        EliminarRelacionUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.estructura_relacion_nm.crear_estructura_relacion_nm import (
+        CrearEstructuraRelacionNmUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.estructura_relacion_nm.eliminar_estructura_relacion_nm import (
+        EliminarEstructuraRelacionNmUseCase,
+    )
+
+    idempotencia = IdempotenciaDiagramaService(SQLModelOperacionDiagramaRepository(session))
+
+    crear_estructura_nm_use_case = CrearEstructuraRelacionNmUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        estructura_repository=estructura_nm_repo,
+        idempotencia=idempotencia,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    actualizar_clase_use_case = ActualizarClaseUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    eliminar_clase_use_case = EliminarClaseUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        estructura_repository=estructura_nm_repo,
+    )
+
+    actualizar_relacion_use_case = ActualizarRelacionUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        relacion_repository=relacion_repo,
+        atributo_repository=atributo_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    eliminar_relacion_use_case = EliminarRelacionUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+        atributo_repository=atributo_repo,
+        clase_repository=clase_repo,
+        estructura_repository=estructura_nm_repo,
+    )
+
+    eliminar_estructura_nm_use_case = EliminarEstructuraRelacionNmUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        estructura_repository=estructura_nm_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
     ejecutor_plan = EjecutorPlanIa(
         crear_clase_use_case=crear_clase_use_case,
         atributo_use_case=atributo_use_case,
@@ -235,6 +330,13 @@ def enviar_mensaje_ia(
         atributo_repository=atributo_repo,
         relacion_repository=relacion_repo,
         referencia_fk_repository=referencia_fk_repo,
+        actualizar_clase_use_case=actualizar_clase_use_case,
+        eliminar_clase_use_case=eliminar_clase_use_case,
+        actualizar_relacion_use_case=actualizar_relacion_use_case,
+        eliminar_relacion_use_case=eliminar_relacion_use_case,
+        crear_estructura_nm_use_case=crear_estructura_nm_use_case,
+        eliminar_estructura_nm_use_case=eliminar_estructura_nm_use_case,
+        estructura_nm_repository=estructura_nm_repo,
     )
 
     use_case = ProcesarMensajeIaUseCase(

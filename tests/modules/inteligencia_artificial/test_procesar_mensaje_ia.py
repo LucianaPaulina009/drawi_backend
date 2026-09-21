@@ -100,6 +100,17 @@ def _crear_entorno(session: Session, respuesta_json: str | None = None):
     fake_prov = FakeProveedor(respuesta_json=respuesta_json or '{"respuesta_usuario": "Respuesta simulada", "acciones": []}')
     coordinador = EstrategiaModelosGemini(fake_prov)
 
+    from app.modules.diagramas.application.services.idempotencia_diagrama import IdempotenciaDiagramaService
+    from app.modules.diagramas.application.use_cases.estructura_relacion_nm.crear_estructura_relacion_nm import (
+        CrearEstructuraRelacionNmUseCase,
+    )
+    from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_operacion_diagrama_repository import (
+        SQLModelOperacionDiagramaRepository,
+    )
+
+    op_repo = SQLModelOperacionDiagramaRepository(session)
+    idempotencia = IdempotenciaDiagramaService(op_repo)
+
     cc_uc = CrearClaseUseCase(
         proyecto_repository=p_repo,
         diagrama_repository=d_repo,
@@ -129,6 +140,18 @@ def _crear_entorno(session: Session, respuesta_json: str | None = None):
         atributo_repository=a_repo,
         referencia_fk_repository=rfk_repo,
     )
+    cnm_uc = CrearEstructuraRelacionNmUseCase(
+        proyecto_repository=p_repo,
+        diagrama_repository=d_repo,
+        clase_repository=c_repo,
+        atributo_repository=a_repo,
+        relacion_repository=r_repo,
+        referencia_fk_repository=rfk_repo,
+        estructura_repository=nm_repo,
+        idempotencia=idempotencia,
+        uow=uow,
+        colaborador_repository=col_repo,
+    )
 
     ejecutor = EjecutorPlanIa(
         crear_clase_use_case=cc_uc,
@@ -138,6 +161,8 @@ def _crear_entorno(session: Session, respuesta_json: str | None = None):
         atributo_repository=a_repo,
         relacion_repository=r_repo,
         referencia_fk_repository=rfk_repo,
+        crear_estructura_nm_use_case=cnm_uc,
+        estructura_nm_repository=nm_repo,
     )
 
     use_case = ProcesarMensajeIaUseCase(
@@ -152,11 +177,11 @@ def _crear_entorno(session: Session, respuesta_json: str | None = None):
         colaborador_repository=col_repo,
     )
 
-    return use_case, usuario, diagrama, fake_prov
+    return use_case, usuario, diagrama, fake_prov, c_repo, a_repo, r_repo, nm_repo
 
 
 def test_procesar_mensaje_conversacion_exitoso_y_persistido(session: Session):
-    use_case, usuario, diagrama, fake_prov = _crear_entorno(session)
+    use_case, usuario, diagrama, fake_prov, *_ = _crear_entorno(session)
 
     clave = uuid4()
     interaccion = use_case.execute(
@@ -187,7 +212,7 @@ def test_procesar_mensaje_conversacion_exitoso_y_persistido(session: Session):
 
 
 def test_procesar_mensaje_misma_clave_distinto_texto_lanza_conflicto(session: Session):
-    use_case, usuario, diagrama, _ = _crear_entorno(session)
+    use_case, usuario, diagrama, _, *_ = _crear_entorno(session)
 
     clave = uuid4()
     use_case.execute(
@@ -211,7 +236,7 @@ def test_procesar_mensaje_misma_clave_distinto_texto_lanza_conflicto(session: Se
 
 
 def test_procesar_mensaje_texto_vacio_falla_validacion(session: Session):
-    use_case, usuario, diagrama, _ = _crear_entorno(session)
+    use_case, usuario, diagrama, _, *_ = _crear_entorno(session)
 
     with pytest.raises(EntradaUsuarioInvalidaException):
         use_case.execute(
@@ -222,3 +247,79 @@ def test_procesar_mensaje_texto_vacio_falla_validacion(session: Session):
                 clave_idempotencia=uuid4(),
             )
         )
+
+
+def test_procesar_mensaje_ia_crea_relacion_nm_con_atributo_en_intermedia(session: Session):
+    from app.modules.diagramas.infrastructure.persistence.models.clase_model import ClaseModel
+    from app.modules.diagramas.infrastructure.persistence.models.atributo_model import AtributoModel
+    from app.modules.diagramas.domain.value_objects.procedencia_atributo import ProcedenciaAtributo
+
+    respuesta_gemini = """{
+      "respuesta_usuario": "He creado la relación de muchos a muchos entre Cliente y Vehiculo, generando la tabla intermedia Cliente_Vehiculo y agregando el atributo prueba.",
+      "acciones": [
+        {
+          "tipo": "crear_estructura_nm",
+          "referencia_intermedia": "cliente_vehiculo",
+          "clase_origen_referencia": "Cliente",
+          "clase_destino_referencia": "Vehiculo",
+          "nombre_intermedia": "Cliente_Vehiculo"
+        },
+        {
+          "tipo": "crear_atributo",
+          "clase_referencia": "cliente_vehiculo",
+          "nombre": "prueba",
+          "tipo_dato": "text"
+        }
+      ]
+    }"""
+
+    use_case, usuario, diagrama, _, c_repo, a_repo, r_repo, nm_repo = _crear_entorno(
+        session, respuesta_json=respuesta_gemini
+    )
+
+    # Crear previamente clases Cliente y Vehiculo
+    c1 = ClaseModel(id_diagrama=diagrama.id, nombre="Cliente", posicion_x=100.0, posicion_y=100.0, ancho=280.0)
+    c2 = ClaseModel(id_diagrama=diagrama.id, nombre="Vehiculo", posicion_x=500.0, posicion_y=100.0, ancho=280.0)
+    session.add(c1)
+    session.add(c2)
+    session.commit()
+
+    a1 = AtributoModel(id_clase=c1.id, nombre="id", tipo_dato="integer", orden_de_posicion=1, es_llave_primaria=True, permite_nulo=False, es_unico=True, procedencia=ProcedenciaAtributo.SISTEMA_CLASE.value)
+    a2 = AtributoModel(id_clase=c2.id, nombre="id", tipo_dato="integer", orden_de_posicion=1, es_llave_primaria=True, permite_nulo=False, es_unico=True, procedencia=ProcedenciaAtributo.SISTEMA_CLASE.value)
+    session.add(a1)
+    session.add(a2)
+    session.commit()
+
+    # Usuario pide la creación N:M con atributo en la intermedia
+    interaccion = use_case.execute(
+        ProcesarMensajeIaCommand(
+            usuario_id=usuario.id,
+            diagrama_id=diagrama.id,
+            texto="Crea una relacion de la tabla Cliente con Vehiculo, una relacion de muchos a muchos, en la tabla de muchos a muchos crea un atributo llamado prueba de tipo texto.",
+            clave_idempotencia=uuid4(),
+        )
+    )
+
+    assert interaccion.estado == EstadoInteraccionIa.COMPLETADO
+    assert "Cliente_Vehiculo" in interaccion.respuesta_ia
+
+    # Verificar entidades en base de datos
+    clases = c_repo.listar_por_diagrama(diagrama.id)
+    assert len(clases) == 3
+    intermedia = next((c for c in clases if c.nombre == "Cliente_Vehiculo"), None)
+    assert intermedia is not None
+
+    attrs = a_repo.listar_por_clase(intermedia.id)
+    nombres_attrs = {a.nombre for a in attrs}
+    assert "id" in nombres_attrs
+    assert "prueba" in nombres_attrs
+    attr_prueba = next(a for a in attrs if a.nombre == "prueba")
+    assert attr_prueba.tipo_dato == "text"
+
+    estructuras = nm_repo.listar_por_diagrama(diagrama.id)
+    assert len(estructuras) == 1
+    assert estructuras[0].id_clase_intermedia == intermedia.id
+
+    relaciones = r_repo.listar_por_diagrama(diagrama.id)
+    assert len(relaciones) == 2
+

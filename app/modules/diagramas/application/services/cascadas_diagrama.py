@@ -29,6 +29,7 @@ class CierreCascadaResultado:
     atributos_eliminados: set[UUID] = field(default_factory=set)
     referencias_eliminadas: set[UUID] = field(default_factory=set)
     estructuras_nm_eliminadas: set[UUID] = field(default_factory=set)
+    clases_modificadas: set[UUID] = field(default_factory=set)
 
 
 class CascadasDiagramaService:
@@ -104,6 +105,11 @@ class CascadasDiagramaService:
         if resultado is None:
             resultado = CierreCascadaResultado()
 
+        relacion = self.relacion_repo.obtener_por_id(relacion_id)
+        if relacion is not None:
+            resultado.clases_modificadas.add(relacion.id_clase_origen)
+            resultado.clases_modificadas.add(relacion.id_clase_destino)
+
         # Si esta relación forma parte de una estructura N:M, cerrar toda la estructura
         if self.estructura_nm_repo is not None:
             todas_nm = self.estructura_nm_repo.listar_por_diagrama(diagrama_id)
@@ -152,6 +158,8 @@ class CascadasDiagramaService:
         # Verificar si la relación pierde materialización
         relacion = self.relacion_repo.obtener_por_id(relacion_id)
         if relacion is not None and relacion.id not in resultado.relaciones_eliminadas:
+            resultado.clases_modificadas.add(relacion.id_clase_origen)
+            resultado.clases_modificadas.add(relacion.id_clase_destino)
             refs_restantes = [
                 r for r in self.referencia_fk_repo.listar_por_relacion(relacion.id)
                 if r.id not in resultado.referencias_eliminadas
@@ -188,6 +196,7 @@ class CascadasDiagramaService:
             raise LlavePrimariaProtegidaException()
 
         resultado.atributos_eliminados.add(atributo_id)
+        resultado.clases_modificadas.add(clase_id)
 
         # Limpiar todas las referencias FK asociadas a este atributo (como origen o destino)
         refs = self.referencia_fk_repo.listar_por_atributo(atributo_id)
@@ -228,6 +237,9 @@ class CascadasDiagramaService:
         estructura = self.estructura_nm_repo.obtener_por_id(estructura_id)
         if estructura is None:
             return resultado
+
+        resultado.clases_modificadas.add(estructura.id_clase_origen)
+        resultado.clases_modificadas.add(estructura.id_clase_destino)
 
         # 1. Eliminar relaciones internas (origen e intermedia, destino e intermedia)
         for rel_id in (estructura.id_relacion_origen, estructura.id_relacion_destino):
@@ -308,6 +320,7 @@ class CascadasDiagramaService:
         ]
         if not otras_refs:
             resultado.atributos_eliminados.add(atributo_id)
+            resultado.clases_modificadas.add(atributo.id_clase)
             self.atributo_repo.eliminar(atributo_id)
             restantes = [
                 a for a in self.atributo_repo.listar_por_clase(atributo.id_clase)

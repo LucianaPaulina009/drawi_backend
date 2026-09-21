@@ -62,6 +62,12 @@ def test_crear_relacion_recursiva():
     assert relacion.id_clase_origen == relacion.id_clase_destino
 
 
+def test_conector_canonico_y_legacy_se_validan_y_se_normalizan():
+    assert Conector.validar("right-top") is Conector.RIGHT_TOP
+    assert Conector.a_handle_canonico("right") == "right-center"
+    assert Conector.a_handle_canonico("right-top") == "right-top"
+
+
 def test_actualizar_relacion_parcial():
     r_id = uuid4()
     d_id = uuid4()
@@ -87,4 +93,3 @@ def test_actualizar_relacion_parcial():
     # Actualizar campos estructurales debe ser rechazado
     with pytest.raises(RelacionEstructuralInmutableException):
         relacion.actualizar(cardinalidad_destino="1..*")
-

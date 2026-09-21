@@ -92,6 +92,8 @@ class EliminarRelacionUseCase:
         else:
             referencias = self.referencia_fk_repository.listar_por_relacion(command.relacion_id)
             self.referencia_fk_repository.eliminar_por_relacion(command.relacion_id)
+            attrs_eliminados = set()
+            clases_mod = {relacion.id_clase_origen, relacion.id_clase_destino}
             if self.atributo_repository is not None:
                 for referencia in referencias:
                     atributo = self.atributo_repository.obtener_por_id(referencia.id_atributo_fk)
@@ -101,8 +103,14 @@ class EliminarRelacionUseCase:
                         and not self.referencia_fk_repository.listar_por_atributo(atributo.id)
                     ):
                         self.atributo_repository.eliminar(atributo.id)
+                        attrs_eliminados.add(atributo.id)
+                        clases_mod.add(atributo.id_clase)
             self.relacion_repository.eliminar(command.relacion_id)
-            resultado = CierreCascadaResultado(relaciones_eliminadas={command.relacion_id})
+            resultado = CierreCascadaResultado(
+                relaciones_eliminadas={command.relacion_id},
+                atributos_eliminados=attrs_eliminados,
+                clases_modificadas=clases_mod,
+            )
 
         if confirmar:
             self.uow.commit()

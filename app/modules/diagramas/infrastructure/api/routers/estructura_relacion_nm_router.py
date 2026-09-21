@@ -159,7 +159,12 @@ def eliminar_estructura_nm(
         )
     )
 
+    clases_act = [
+        proyectar_clase(clase_repo, atributo_repo, cid)
+        for cid in (resultado.clases_modificadas - resultado.clases_eliminadas)
+    ]
     efectos = construir_efectos(
+        clases_actualizadas=[c for c in clases_act if c is not None],
         clases_eliminadas=list(resultado.clases_eliminadas),
         relaciones_eliminadas=list(resultado.relaciones_eliminadas),
         estructuras_nm_eliminadas=list(resultado.estructuras_nm_eliminadas),

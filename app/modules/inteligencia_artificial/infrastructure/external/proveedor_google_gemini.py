@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import logging
 
-from google import genai
-from google.genai import errors, types
-
 from app.core.config import settings
 from app.modules.inteligencia_artificial.application.ports.providers.proveedor_ia import (
     ProveedorIa,
@@ -14,6 +11,8 @@ from app.modules.inteligencia_artificial.domain.exceptions import (
     ProveedorIaNoRecuperableException,
     ProveedorIaRecuperableException,
 )
+from google import genai
+from google.genai import errors, types
 
 logger = logging.getLogger(__name__)
 

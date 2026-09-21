@@ -102,3 +102,134 @@ def test_creado_en_persiste_timestamp_original(client: TestClient, session: Sess
     assert items[0]["creadoEn"] == timestamp_t1
 
     set_proveedor_ia_override(None)
+
+
+def test_interaccion_ia_api_crud_action(client: TestClient, session: Session):
+    usuario = BetterAuthUser(id="usuario-propietario-1", name="PropCRUD", email="crud@drawi.com", email_verified=True)
+    session.add(usuario)
+    session.commit()
+
+    proyecto = ProyectoModel(propietario_id=usuario.id, nombre="Proy CRUD", color="azul", icono="caja", slug="proy-crud")
+    session.add(proyecto)
+    session.commit()
+
+    diagrama = DiagramaModel(id_proyecto=proyecto.id, nombre="Pagina 1", numero=1)
+    session.add(diagrama)
+    session.commit()
+
+    from app.modules.diagramas.infrastructure.persistence.models.clase_model import ClaseModel
+    clase = ClaseModel(id_diagrama=diagrama.id, nombre="Cliente", posicion_x=100.0, posicion_y=100.0, ancho=280.0)
+    session.add(clase)
+    session.commit()
+
+    class FakeCrudProveedor(ProveedorIa):
+        def generar_respuesta(self, *, modelo: str, prompt_sistema: str, mensaje_usuario: str, temperatura: float = 0.2) -> ResultadoProveedorIa:
+            return ResultadoProveedorIa(
+                texto_respuesta='{"respuesta_usuario": "Renombré Cliente a ClienteAct.", "acciones": [{"tipo": "actualizar_clase", "clase_referencia": "Cliente", "nuevo_nombre": "ClienteAct"}]}',
+                modelo=modelo,
+            )
+
+    set_proveedor_ia_override(FakeCrudProveedor())
+
+    res_post = client.post(
+        f"/api/diagramas/{diagrama.id}/interacciones-ia",
+        json={"texto": "Renombra la clase Cliente a ClienteAct", "claveIdempotencia": str(uuid4())},
+    )
+    assert res_post.status_code == 201, res_post.text
+    data = res_post.json()
+    assert data["estado"] == "completado"
+    assert data["respuestaIa"] == "Renombré Cliente a ClienteAct."
+
+    # Verificar que en base de datos la clase cambió de nombre
+    session.refresh(clase)
+    assert clase.nombre == "ClienteAct"
+
+    set_proveedor_ia_override(None)
+
+
+def test_interaccion_ia_api_crear_estructura_nm_con_atributo(client: TestClient, session: Session):
+    from app.modules.diagramas.infrastructure.persistence.models.clase_model import ClaseModel
+    from app.modules.diagramas.infrastructure.persistence.models.atributo_model import AtributoModel
+    from app.modules.diagramas.domain.value_objects.procedencia_atributo import ProcedenciaAtributo
+    from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_clase_repository import SQLModelClaseRepository
+    from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_atributo_repository import SQLModelAtributoRepository
+    from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_estructura_relacion_nm_repository import SQLModelEstructuraRelacionNmRepository
+
+    usuario = BetterAuthUser(id="usuario-propietario-1", name="PropNM", email="nm@drawi.com", email_verified=True)
+    session.add(usuario)
+    session.commit()
+
+    proyecto = ProyectoModel(propietario_id=usuario.id, nombre="Proy API NM", color="azul", icono="caja", slug="proy-api-nm")
+    session.add(proyecto)
+    session.commit()
+
+    diagrama = DiagramaModel(id_proyecto=proyecto.id, nombre="Diagrama API NM", numero=1)
+    session.add(diagrama)
+    session.commit()
+
+    c1 = ClaseModel(id_diagrama=diagrama.id, nombre="Cliente", posicion_x=100.0, posicion_y=100.0, ancho=280.0)
+    c2 = ClaseModel(id_diagrama=diagrama.id, nombre="Vehiculo", posicion_x=500.0, posicion_y=100.0, ancho=280.0)
+    session.add(c1)
+    session.add(c2)
+    session.commit()
+
+    a1 = AtributoModel(id_clase=c1.id, nombre="id", tipo_dato="integer", orden_de_posicion=1, es_llave_primaria=True, permite_nulo=False, es_unico=True, procedencia=ProcedenciaAtributo.SISTEMA_CLASE.value)
+    a2 = AtributoModel(id_clase=c2.id, nombre="id", tipo_dato="integer", orden_de_posicion=1, es_llave_primaria=True, permite_nulo=False, es_unico=True, procedencia=ProcedenciaAtributo.SISTEMA_CLASE.value)
+    session.add(a1)
+    session.add(a2)
+    session.commit()
+
+    class FakeNmProveedor(ProveedorIa):
+        def generar_respuesta(self, *, modelo: str, prompt_sistema: str, mensaje_usuario: str, temperatura: float = 0.2) -> ResultadoProveedorIa:
+            return ResultadoProveedorIa(
+                texto_respuesta='''{
+                  "respuesta_usuario": "Relación N:M creada exitosamente con el atributo prueba en Cliente_Vehiculo.",
+                  "acciones": [
+                    {
+                      "tipo": "crear_estructura_nm",
+                      "referencia_intermedia": "cliente_vehiculo",
+                      "clase_origen_referencia": "Cliente",
+                      "clase_destino_referencia": "Vehiculo",
+                      "nombre_intermedia": "Cliente_Vehiculo"
+                    },
+                    {
+                      "tipo": "crear_atributo",
+                      "clase_referencia": "cliente_vehiculo",
+                      "nombre": "prueba",
+                      "tipo_dato": "text"
+                    }
+                  ]
+                }''',
+                modelo=modelo,
+            )
+
+    set_proveedor_ia_override(FakeNmProveedor())
+
+    res_post = client.post(
+        f"/api/diagramas/{diagrama.id}/interacciones-ia",
+        json={
+            "texto": "Crea una relacion de la tabla Cliente con Vehiculo, una relacion de muchos a muchos, en la tabla de muchos a muchos crea un atributo llamado prueba de tipo texto.",
+            "claveIdempotencia": str(uuid4()),
+        },
+    )
+    assert res_post.status_code == 201, res_post.text
+    data = res_post.json()
+    assert data["estado"] == "completado"
+    assert "Cliente_Vehiculo" in data["respuestaIa"]
+
+    c_repo = SQLModelClaseRepository(session)
+    a_repo = SQLModelAtributoRepository(session)
+    nm_repo = SQLModelEstructuraRelacionNmRepository(session)
+
+    clases = c_repo.listar_por_diagrama(diagrama.id)
+    assert len(clases) == 3
+    intermedia = next(c for c in clases if c.nombre == "Cliente_Vehiculo")
+    attrs = a_repo.listar_por_clase(intermedia.id)
+    nombres_attrs = {a.nombre for a in attrs}
+    assert "id" in nombres_attrs
+    assert "prueba" in nombres_attrs
+    assert len(nm_repo.listar_por_diagrama(diagrama.id)) == 1
+
+    set_proveedor_ia_override(None)
+
+

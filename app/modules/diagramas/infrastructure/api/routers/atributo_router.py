@@ -228,13 +228,13 @@ def eliminar_atributo(
     ).eliminar(AtributoCommand(usuario.user_id, id_clase, {}, id_atributo))
 
     if diagrama_id:
-        clases_act = (
-            [proyectar_clase(clase_repo, atributo_repo, id_clase)]
-            if (id_clase not in resultado.clases_eliminadas and clase_repo.obtener_por_id(id_clase))
-            else []
-        )
+        clases_ids = (resultado.clases_modificadas | {id_clase}) - resultado.clases_eliminadas
+        clases_act = [
+            proyectar_clase(clase_repo, atributo_repo, cid)
+            for cid in clases_ids
+        ]
         efectos = construir_efectos(
-            clases_actualizadas=clases_act,
+            clases_actualizadas=[c for c in clases_act if c is not None],
             clases_eliminadas=list(resultado.clases_eliminadas),
             relaciones_eliminadas=list(resultado.relaciones_eliminadas),
             estructuras_nm_eliminadas=list(resultado.estructuras_nm_eliminadas),

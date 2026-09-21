@@ -98,6 +98,45 @@ def test_ciclo_de_vida_relacion_y_listado(client):
     assert client.get(f"/api/diagramas/{diagrama_id}/relaciones").json()["items"] == []
 
 
+def test_rechaza_un_handle_canonico_ya_ocupado(client):
+    _, diagrama_id = _crear_proyecto_y_diagrama(client)
+    origen = _crear_clase(client, diagrama_id, nombre="Origen")
+    destino_a = _crear_clase(client, diagrama_id, nombre="Destino A")
+    destino_b = _crear_clase(client, diagrama_id, nombre="Destino B")
+
+    primera = client.post(
+        f"/api/diagramas/{diagrama_id}/relaciones",
+        json={
+            "id_relacion": str(uuid.uuid4()),
+            "id_clase_origen": origen["id"],
+            "id_clase_destino": destino_a["id"],
+            "tipo_relacion": "asociacion",
+            "cardinalidad_origen": "0..*",
+            "cardinalidad_destino": "0..*",
+            "conector_origen": "right-center",
+            "conector_destino": "left-center",
+        },
+    )
+    assert primera.status_code == 201
+    assert primera.json()["conector_origen"] == "right-center"
+    assert primera.json()["conector_destino"] == "left-center"
+
+    repetida = client.post(
+        f"/api/diagramas/{diagrama_id}/relaciones",
+        json={
+            "id_relacion": str(uuid.uuid4()),
+            "id_clase_origen": origen["id"],
+            "id_clase_destino": destino_b["id"],
+            "tipo_relacion": "asociacion",
+            "cardinalidad_origen": "0..*",
+            "cardinalidad_destino": "0..*",
+            "conector_origen": "right-center",
+            "conector_destino": "left-center",
+        },
+    )
+    assert repetida.status_code == 409
+
+
 def test_rechaza_uuid_duplicado_en_relacion(client):
     _, diagrama_id = _crear_proyecto_y_diagrama(client)
     c1 = _crear_clase(client, diagrama_id)
@@ -402,8 +441,8 @@ def test_materializacion_multiple_uno_a_uno_y_nm_sin_fk_directa(client):
         "tipo_relacion": "asociacion",
         "cardinalidad_origen": "1",
         "cardinalidad_destino": "1",
-        "conector_origen": "right",
-        "conector_destino": "left",
+        "conector_origen": "top-center",
+        "conector_destino": "bottom-center",
     }
     assert client.post(f"/api/diagramas/{diagrama_id}/relaciones", json=uno_a_uno).status_code == 400
 
@@ -431,3 +470,130 @@ def test_materializacion_multiple_uno_a_uno_y_nm_sin_fk_directa(client):
     assert len(creada.json()["referencias_fk"]) == 2
     atributos_destino = client.get(f"/api/clases/{destino['id']}/atributos").json()["items"]
     assert next(item for item in atributos_destino if item["id"] == atributo_fk_nuevo_id)["procedencia"] == "sistema_fk"
+
+
+def test_eliminacion_relacion_limpia_atributo_fk_del_sistema_y_proyecta_clase_actualizada(client):
+    _, diagrama_id = _crear_proyecto_y_diagrama(client)
+    c_origen = _crear_clase(client, diagrama_id, nombre="Usuario")
+    c_destino = _crear_clase(client, diagrama_id, nombre="Perfil")
+
+    # Agregar un atributo manual en destino con nombre similar para verificar que no se borre
+    attr_manual_id = str(uuid.uuid4())
+    res_attr_man = client.post(
+        f"/api/clases/{c_destino['id']}/atributos",
+        json={
+            "id_atributo": attr_manual_id,
+            "nombre": "usuario_id_manual",
+            "tipo_dato": "integer",
+            "permite_nulo": True,
+        },
+    )
+    assert res_attr_man.status_code == 201
+
+    # Crear relación 1:N que genera atributo FK del sistema
+    rel_id = str(uuid.uuid4())
+    ref_id = str(uuid.uuid4())
+    fk_attr_id = str(uuid.uuid4())
+    crear_res = client.post(
+        f"/api/diagramas/{diagrama_id}/relaciones",
+        json={
+            "id_relacion": rel_id,
+            "id_clase_origen": c_origen["id"],
+            "id_clase_destino": c_destino["id"],
+            "tipo_relacion": "asociacion",
+            "cardinalidad_origen": "1",
+            "cardinalidad_destino": "0..*",
+            "conector_origen": "right",
+            "conector_destino": "left",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": ref_id,
+                    "id_clase_fk": c_destino["id"],
+                    "id_atributo_referenciado": c_origen["atributos"][0]["id"],
+                    "atributo_fk_nuevo": {
+                        "id_atributo": fk_attr_id,
+                        "nombre": "usuario_id",
+                        "tipo_dato": "integer",
+                        "permite_nulo": True,
+                    },
+                }
+            ],
+        },
+    )
+    assert crear_res.status_code == 201
+
+    # Verificar que el destino tiene 3 atributos (PK + manual + sistema_fk)
+    det_antes = client.get(f"/api/proyectos/{_crear_proyecto_y_diagrama.__name__}/diagramas/{diagrama_id}")
+    attrs_dest_antes = client.get(f"/api/clases/{c_destino['id']}/atributos").json()["items"]
+    ids_attrs_antes = {a["id"] for a in attrs_dest_antes}
+    assert fk_attr_id in ids_attrs_antes
+    assert attr_manual_id in ids_attrs_antes
+
+    # Eliminar relación
+    del_res = client.delete(f"/api/diagramas/{diagrama_id}/relaciones/{rel_id}")
+    assert del_res.status_code == 204
+
+    # Verificar que el atributo FK del sistema se eliminó, pero el manual y PK persisten
+    attrs_dest_despues = client.get(f"/api/clases/{c_destino['id']}/atributos").json()["items"]
+    ids_attrs_despues = {a["id"] for a in attrs_dest_despues}
+    assert fk_attr_id not in ids_attrs_despues
+    assert attr_manual_id in ids_attrs_despues
+    assert len(attrs_dest_despues) == 2
+
+
+def test_operacion_eliminar_relacion_proyecta_clase_actualizada_en_efectos(client):
+    proyecto_id, diagrama_id = _crear_proyecto_y_diagrama(client)
+    c1 = _crear_clase(client, diagrama_id, nombre="Tabla1")
+    c2 = _crear_clase(client, diagrama_id, nombre="Tabla2")
+
+    rel_id = str(uuid.uuid4())
+    ref_id = str(uuid.uuid4())
+    fk_id = str(uuid.uuid4())
+
+    client.post(
+        f"/api/diagramas/{diagrama_id}/relaciones",
+        json={
+            "id_relacion": rel_id,
+            "id_clase_origen": c1["id"],
+            "id_clase_destino": c2["id"],
+            "tipo_relacion": "asociacion",
+            "cardinalidad_origen": "1",
+            "cardinalidad_destino": "0..*",
+            "conector_origen": "right",
+            "conector_destino": "left",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": ref_id,
+                    "id_clase_fk": c2["id"],
+                    "id_atributo_referenciado": c1["atributos"][0]["id"],
+                    "atributo_fk_nuevo": {
+                        "id_atributo": fk_id,
+                        "nombre": "tabla1_id",
+                        "tipo_dato": "integer",
+                        "permite_nulo": True,
+                    },
+                }
+            ],
+        },
+    )
+
+    action_id = str(uuid.uuid4())
+    op_res = client.post(
+        f"/api/diagramas/{diagrama_id}/operaciones",
+        headers={"Idempotency-Key": action_id},
+        json={
+            "tipo": "ELIMINAR_RELACION",
+            "datos": {
+                "id_relacion": rel_id,
+            },
+        },
+    )
+    assert op_res.status_code == 200
+    recibo = op_res.json()
+    efectos = recibo["efectos"]
+    assert any(str(r) == rel_id for r in efectos["relaciones_eliminadas"])
+    
+    # Comprobar que clases_actualizadas proyecta Tabla2 sin la FK
+    c2_act = next((c for c in efectos["clases_actualizadas"] if str(c["id"]) == c2["id"]), None)
+    assert c2_act is not None
+    assert all(str(a["id"]) != fk_id for a in c2_act["atributos"])

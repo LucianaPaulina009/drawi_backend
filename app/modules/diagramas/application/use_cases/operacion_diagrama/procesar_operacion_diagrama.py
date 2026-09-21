@@ -9,6 +9,9 @@ from fastapi import HTTPException
 from app.modules.diagramas.application.services.cascadas_diagrama import (
     CascadasDiagramaService,
 )
+from app.modules.diagramas.application.services.geometria_conectores import (
+    calcular_mejores_conectores,
+)
 from app.modules.diagramas.application.services.idempotencia_diagrama import (
     IdempotenciaDiagramaService,
 )
@@ -216,6 +219,10 @@ class ProcesarOperacionDiagramaUseCase:
             clases_eliminadas.extend(str(cid) for cid in cierre.clases_eliminadas)
             relaciones_eliminadas.extend(str(rid) for rid in cierre.relaciones_eliminadas)
             estructuras_nm_eliminadas.extend(str(nid) for nid in cierre.estructuras_nm_eliminadas)
+            for cid in (cierre.clases_modificadas - cierre.clases_eliminadas):
+                proj = self._proyectar_clase(cid)
+                if proj:
+                    clases_actualizadas.append(proj)
 
         elif command.tipo == "CREAR_ATRIBUTO":
             class_id = UUID(str(datos["id_clase"]))
@@ -285,9 +292,10 @@ class ProcesarOperacionDiagramaUseCase:
             relaciones_eliminadas.extend(str(rid) for rid in cierre.relaciones_eliminadas)
             estructuras_nm_eliminadas.extend(str(nid) for nid in cierre.estructuras_nm_eliminadas)
             clases_eliminadas.extend(str(cid) for cid in cierre.clases_eliminadas)
-
-            if class_id not in cierre.clases_eliminadas:
-                clases_actualizadas.append(self._proyectar_clase(class_id))
+            for cid in (cierre.clases_modificadas - cierre.clases_eliminadas):
+                proj = self._proyectar_clase(cid)
+                if proj:
+                    clases_actualizadas.append(proj)
 
         elif command.tipo == "CREAR_RELACION":
             rel_id = UUID(str(datos["id_relacion"]))
@@ -333,6 +341,20 @@ class ProcesarOperacionDiagramaUseCase:
                 atributo_repository=self.atributo_repo,
                 referencia_fk_repository=self.referencia_fk_repo,
             )
+            con_orig = datos.get("conector_origen") or datos.get("conectorOrigen")
+            con_dest = datos.get("conector_destino") or datos.get("conectorDestino")
+            if not con_orig or not con_dest:
+                origen_obj = self.clase_repo.obtener_por_id(c_origen)
+                destino_obj = self.clase_repo.obtener_por_id(c_destino)
+                if origen_obj and destino_obj:
+                    rels = self.relacion_repo.listar_por_diagrama(command.diagrama_id)
+                    calc_orig, calc_dest = calcular_mejores_conectores(origen_obj, destino_obj, rels, con_orig, con_dest)
+                    con_orig = con_orig or calc_orig
+                    con_dest = con_dest or calc_dest
+                else:
+                    con_orig = con_orig or "right"
+                    con_dest = con_dest or "left"
+
             use_case_rel.execute(
                 CrearRelacionCommand(
                     propietario_id=command.propietario_id,
@@ -343,8 +365,8 @@ class ProcesarOperacionDiagramaUseCase:
                     tipo_relacion=tipo_rel,
                     cardinalidad_origen=str(datos.get("cardinalidad_origen", "1")),
                     cardinalidad_destino=str(datos.get("cardinalidad_destino", "1")),
-                    conector_origen=str(datos.get("conector_origen", "right")),
-                    conector_destino=str(datos.get("conector_destino", "left")),
+                    conector_origen=str(con_orig),
+                    conector_destino=str(con_dest),
                     nombre=datos.get("nombre"),
                     materializacion_fk=mats_fk,
                 ),
@@ -382,6 +404,10 @@ class ProcesarOperacionDiagramaUseCase:
             relaciones_eliminadas.extend(str(rid) for rid in cierre.relaciones_eliminadas)
             estructuras_nm_eliminadas.extend(str(nid) for nid in cierre.estructuras_nm_eliminadas)
             clases_eliminadas.extend(str(cid) for cid in cierre.clases_eliminadas)
+            for cid in (cierre.clases_modificadas - cierre.clases_eliminadas):
+                proj = self._proyectar_clase(cid)
+                if proj:
+                    clases_actualizadas.append(proj)
 
         elif command.tipo == "CREAR_ESTRUCTURA_NM":
             c_inter = datos.get("clase_intermedia") or datos.get("claseIntermedia") or {}
@@ -435,6 +461,9 @@ class ProcesarOperacionDiagramaUseCase:
                 uow=self.uow,
                 colaborador_repository=self.colaborador_repo,
             )
+            con_orig = r_orig.get("conector_origen") or r_orig.get("conectorOrigen") or datos.get("conector_origen") or datos.get("conectorOrigen")
+            con_dest = r_dest.get("conector_origen") or r_dest.get("conectorOrigen") or datos.get("conector_destino") or datos.get("conectorDestino")
+
             res_nm = use_case_nm.execute(
                 CrearEstructuraRelacionNmCommand(
                     propietario_id=command.propietario_id,
@@ -457,6 +486,8 @@ class ProcesarOperacionDiagramaUseCase:
                     posicion_x=pos_x,
                     posicion_y=pos_y,
                     ancho=ancho,
+                    conector_origen=con_orig,
+                    conector_destino=con_dest,
                 ),
                 confirmar=False,
             )
@@ -476,6 +507,10 @@ class ProcesarOperacionDiagramaUseCase:
             estructuras_nm_eliminadas.extend(str(nid) for nid in cierre.estructuras_nm_eliminadas)
             clases_eliminadas.extend(str(cid) for cid in cierre.clases_eliminadas)
             relaciones_eliminadas.extend(str(rid) for rid in cierre.relaciones_eliminadas)
+            for cid in (cierre.clases_modificadas - cierre.clases_eliminadas):
+                proj = self._proyectar_clase(cid)
+                if proj:
+                    clases_actualizadas.append(proj)
 
         # Deduplicar clases_actualizadas y relaciones_actualizadas por id
         clases_dict = {c["id"]: c for c in clases_actualizadas if c and c["id"] not in clases_eliminadas}

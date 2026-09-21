@@ -44,13 +44,88 @@ class AccionCrearRelacionSchema(BaseModel):
     tipo_relacion: str = "asociacion"
     cardinalidad_origen: str = "1"
     cardinalidad_destino: str = "1..*"
-    conector_origen: str = "right"
-    conector_destino: str = "left"
+    conector_origen: str | None = None
+    conector_destino: str | None = None
     nombre: str | None = None
 
 
+class AccionActualizarClaseSchema(BaseModel):
+    tipo: Literal["actualizar_clase"] = "actualizar_clase"
+    clase_referencia: str
+    nuevo_nombre: str | None = None
+    posicion: PosicionSchema | None = None
+    ancho: float | None = None
+
+
+class AccionActualizarAtributoSchema(BaseModel):
+    tipo: Literal["actualizar_atributo"] = "actualizar_atributo"
+    clase_referencia: str
+    atributo_referencia: str
+    nuevo_nombre: str | None = None
+    tipo_dato: str | None = None
+    longitud: int | None = None
+    precision: int | None = None
+    escala: int | None = None
+    permite_nulo: bool | None = None
+    es_unico: bool | None = None
+    valor_por_defecto: str | None = None
+
+
+class AccionActualizarRelacionSchema(BaseModel):
+    tipo: Literal["actualizar_relacion"] = "actualizar_relacion"
+    clase_origen_referencia: str
+    clase_destino_referencia: str
+    nuevo_nombre: str
+
+
+class AccionEliminarClaseSchema(BaseModel):
+    tipo: Literal["eliminar_clase"] = "eliminar_clase"
+    clase_referencia: str
+
+
+class AccionEliminarAtributoSchema(BaseModel):
+    tipo: Literal["eliminar_atributo"] = "eliminar_atributo"
+    clase_referencia: str
+    atributo_referencia: str
+
+
+class AccionEliminarRelacionSchema(BaseModel):
+    tipo: Literal["eliminar_relacion"] = "eliminar_relacion"
+    clase_origen_referencia: str
+    clase_destino_referencia: str
+    nombre: str | None = None
+
+
+class AccionCrearEstructuraNmSchema(BaseModel):
+    tipo: Literal["crear_estructura_nm"] = "crear_estructura_nm"
+    referencia_intermedia: str | None = None
+    clase_origen_referencia: str
+    clase_destino_referencia: str
+    nombre_intermedia: str | None = None
+    posicion: PosicionSchema | None = None
+    ancho: float = 280.0
+
+
+class AccionEliminarEstructuraNmSchema(BaseModel):
+    tipo: Literal["eliminar_estructura_nm"] = "eliminar_estructura_nm"
+    clase_origen_referencia: str
+    clase_destino_referencia: str
+
+
 AccionIaUnion = Annotated[
-    Union[AccionCrearClaseSchema, AccionCrearAtributoSchema, AccionCrearRelacionSchema],
+    Union[
+        AccionCrearClaseSchema,
+        AccionCrearAtributoSchema,
+        AccionCrearRelacionSchema,
+        AccionCrearEstructuraNmSchema,
+        AccionActualizarClaseSchema,
+        AccionActualizarAtributoSchema,
+        AccionActualizarRelacionSchema,
+        AccionEliminarClaseSchema,
+        AccionEliminarAtributoSchema,
+        AccionEliminarRelacionSchema,
+        AccionEliminarEstructuraNmSchema,
+    ],
     Field(discriminator="tipo"),
 ]
 

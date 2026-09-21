@@ -88,3 +88,107 @@ def test_validador_tipo_accion_desconocido_falla():
     json_str = '{"respuesta_usuario": "err", "acciones": [{"tipo": "eliminar_base_datos"}]}'
     with pytest.raises(RespuestaIaInvalidaException):
         ValidadorRespuestaIa.validar(json_str)
+
+
+def test_validador_respuesta_crud_completo():
+    from app.modules.inteligencia_artificial.application.services.validador_respuesta_ia import (
+        AccionActualizarAtributoSchema,
+        AccionActualizarClaseSchema,
+        AccionActualizarRelacionSchema,
+        AccionEliminarAtributoSchema,
+        AccionEliminarClaseSchema,
+        AccionEliminarEstructuraNmSchema,
+        AccionEliminarRelacionSchema,
+    )
+
+    json_str = """{
+      "respuesta_usuario": "Operaciones CRUD ejecutadas.",
+      "acciones": [
+        {
+          "tipo": "actualizar_clase",
+          "clase_referencia": "Cliente",
+          "nuevo_nombre": "ClientePremium"
+        },
+        {
+          "tipo": "actualizar_atributo",
+          "clase_referencia": "ClientePremium",
+          "atributo_referencia": "telefono",
+          "nuevo_nombre": "celular"
+        },
+        {
+          "tipo": "actualizar_relacion",
+          "clase_origen_referencia": "ClientePremium",
+          "clase_destino_referencia": "Pedido",
+          "nuevo_nombre": "compras_cliente"
+        },
+        {
+          "tipo": "eliminar_atributo",
+          "clase_referencia": "ClientePremium",
+          "atributo_referencia": "fax"
+        },
+        {
+          "tipo": "eliminar_relacion",
+          "clase_origen_referencia": "ClientePremium",
+          "clase_destino_referencia": "Auditoria"
+        },
+        {
+          "tipo": "eliminar_estructura_nm",
+          "clase_origen_referencia": "Estudiante",
+          "clase_destino_referencia": "Curso"
+        },
+        {
+          "tipo": "eliminar_clase",
+          "clase_referencia": "Auditoria"
+        }
+      ]
+    }"""
+    res = ValidadorRespuestaIa.validar(json_str)
+    assert len(res.acciones) == 7
+    assert isinstance(res.acciones[0], AccionActualizarClaseSchema)
+    assert isinstance(res.acciones[1], AccionActualizarAtributoSchema)
+    assert isinstance(res.acciones[2], AccionActualizarRelacionSchema)
+    assert isinstance(res.acciones[3], AccionEliminarAtributoSchema)
+    assert isinstance(res.acciones[4], AccionEliminarRelacionSchema)
+    assert isinstance(res.acciones[5], AccionEliminarEstructuraNmSchema)
+    assert isinstance(res.acciones[6], AccionEliminarClaseSchema)
+
+
+def test_validador_respuesta_crear_estructura_nm_con_atributo():
+    from app.modules.inteligencia_artificial.application.services.validador_respuesta_ia import (
+        AccionCrearAtributoSchema,
+        AccionCrearEstructuraNmSchema,
+    )
+
+    json_str = """{
+      "respuesta_usuario": "Creé la relación muchos a muchos entre Cliente y Vehiculo con el atributo prueba.",
+      "acciones": [
+        {
+          "tipo": "crear_estructura_nm",
+          "referencia_intermedia": "cliente_vehiculo",
+          "clase_origen_referencia": "Cliente",
+          "clase_destino_referencia": "Vehiculo",
+          "nombre_intermedia": "Cliente_Vehiculo",
+          "posicion": {"x": 350, "y": 250}
+        },
+        {
+          "tipo": "crear_atributo",
+          "clase_referencia": "cliente_vehiculo",
+          "nombre": "prueba",
+          "tipo_dato": "text"
+        }
+      ]
+    }"""
+    res = ValidadorRespuestaIa.validar(json_str)
+    assert len(res.acciones) == 2
+    assert isinstance(res.acciones[0], AccionCrearEstructuraNmSchema)
+    assert res.acciones[0].clase_origen_referencia == "Cliente"
+    assert res.acciones[0].clase_destino_referencia == "Vehiculo"
+    assert res.acciones[0].nombre_intermedia == "Cliente_Vehiculo"
+    assert res.acciones[0].posicion.x == 350
+
+    assert isinstance(res.acciones[1], AccionCrearAtributoSchema)
+    assert res.acciones[1].clase_referencia == "cliente_vehiculo"
+    assert res.acciones[1].nombre == "prueba"
+    assert res.acciones[1].tipo_dato == "text"
+
+
