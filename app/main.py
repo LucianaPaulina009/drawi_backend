@@ -52,6 +52,10 @@ async def lifespan(app: FastAPI):
     # ── Event Bus — registrar suscripciones de handlers ────────────────────
     configure_event_subscriptions(get_event_bus())
     logger.info("Event Bus configurado con suscripciones del sistema.")
+    logger.info(
+        "GEMINI_API_KEY configurada: %s",
+        bool(settings.GEMINI_API_KEY and settings.GEMINI_API_KEY.strip()),
+    )
 
     yield
 
@@ -149,6 +153,9 @@ from app.modules.diagramas.infrastructure.api.routers.colaboracion_ws_router imp
 from app.modules.diagramas.infrastructure.api.routers.operacion_diagrama_router import (
     router as operacion_diagrama_router,
 )
+from app.modules.inteligencia_artificial.infrastructure.api.routers.interaccion_ia_router import (
+    router as interaccion_ia_router,
+)
 
 app.include_router(proyecto_router, prefix="/api")
 app.include_router(invitacion_router, prefix="/api")
@@ -159,6 +166,7 @@ app.include_router(atributo_router, prefix="/api")
 app.include_router(relacion_router, prefix="/api")
 app.include_router(referencia_fk_router, prefix="/api")
 app.include_router(estructura_relacion_nm_router, prefix="/api")
+app.include_router(interaccion_ia_router, prefix="/api")
 app.include_router(colaboracion_ws_router, prefix="/api")
 app.include_router(operacion_diagrama_router)
 

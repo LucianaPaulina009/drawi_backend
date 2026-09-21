@@ -45,4 +45,7 @@ from app.modules.gestion_proyectos.infrastructure.persistence.models.proyecto_fa
 from app.modules.gestion_proyectos.infrastructure.persistence.models.proyecto_model import (
     ProyectoModel,
 )
+from app.modules.inteligencia_artificial.infrastructure.persistence.models.interaccion_ia_model import (
+    InteraccionIaModel,
+)
 from app.shared.infrastructure.db.better_auth import BetterAuthUser
