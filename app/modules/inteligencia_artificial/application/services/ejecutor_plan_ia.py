@@ -161,6 +161,7 @@ class EjecutorPlanIa:
                 "tipo": accion.tipo,
                 "estado": "pendiente",
             }
+
             try:
                 clases_actuales = self._obtener_clases_actuales(diagrama_id)
                 relaciones_actuales = self.relacion_repo.listar_por_diagrama(diagrama_id)
@@ -721,7 +722,7 @@ class EjecutorPlanIa:
                         conector_origen=con_orig_nm,
                         conector_destino=con_dest_nm,
                     )
-                    res_nm = self.crear_estructura_nm_use_case.execute(cmd_nm, confirmar=False)
+                    res_nm = self.crear_estructura_nm_use_case.execute(cmd_nm, confirmar=True)
 
                     intermedia_id = UUID(res_nm["id_clase_intermedia"])
                     rel_orig_id = UUID(res_nm["id_relacion_origen"])
@@ -817,15 +818,15 @@ class EjecutorPlanIa:
                 paso_info["codigo_error"] = getattr(err, "code", None)
                 resultados_pasos.append(paso_info)
 
-                # Omitir pasos posteriores de forma determinista
-                for rem_idx in range(indice, len(acciones)):
-                    rem_accion = acciones[rem_idx]
-                    resultados_pasos.append({
-                        "paso": rem_idx + 1,
-                        "tipo": rem_accion.tipo,
-                        "estado": "omitido",
-                        "motivo": "Omitido debido a que un paso previo no se pudo completar.",
-                    })
+                for sig_idx in range(indice, len(acciones)):
+                    resultados_pasos.append(
+                        {
+                            "paso": sig_idx + 1,
+                            "tipo": acciones[sig_idx].tipo,
+                            "estado": "omitido",
+                            "motivo": f"Omitido debido al rechazo previo en el paso {indice} ({accion.tipo}).",
+                        }
+                    )
                 break
 
             except Exception as err:
@@ -837,15 +838,15 @@ class EjecutorPlanIa:
                 paso_info["motivo"] = str(err)
                 resultados_pasos.append(paso_info)
 
-                # Omitir pasos posteriores de forma determinista
-                for rem_idx in range(indice, len(acciones)):
-                    rem_accion = acciones[rem_idx]
-                    resultados_pasos.append({
-                        "paso": rem_idx + 1,
-                        "tipo": rem_accion.tipo,
-                        "estado": "omitido",
-                        "motivo": "Omitido debido a un error en un paso anterior.",
-                    })
+                for sig_idx in range(indice, len(acciones)):
+                    resultados_pasos.append(
+                        {
+                            "paso": sig_idx + 1,
+                            "tipo": acciones[sig_idx].tipo,
+                            "estado": "omitido",
+                            "motivo": f"Omitido debido a un error técnico previo en el paso {indice} ({accion.tipo}).",
+                        }
+                    )
                 break
 
         return resultados_pasos

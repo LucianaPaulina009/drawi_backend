@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+import httpx
 from app.core.config import settings
 from app.modules.inteligencia_artificial.application.ports.providers.proveedor_ia import (
     ProveedorIa,
@@ -45,7 +46,11 @@ class ProveedorGoogleGemini(ProveedorIa):
             )
         if self._client is None or self._api_key != key:
             self._api_key = key.strip()
-            self._client = genai.Client(api_key=self._api_key)
+            timeout_ms = int(self._timeout_segundos * 1000) if self._timeout_segundos else 10000
+            self._client = genai.Client(
+                api_key=self._api_key,
+                http_options=types.HttpOptions(timeout=timeout_ms),
+            )
         return self._client
 
     def generar_respuesta(
@@ -57,10 +62,13 @@ class ProveedorGoogleGemini(ProveedorIa):
         temperatura: float = 0.2,
     ) -> ResultadoProveedorIa:
         cliente = self._obtener_cliente()
+        timeout_ms = int(self._timeout_segundos * 1000) if self._timeout_segundos else 10000
         try:
             config = types.GenerateContentConfig(
                 system_instruction=prompt_sistema,
                 temperature=temperatura,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                http_options=types.HttpOptions(timeout=timeout_ms),
             )
             respuesta = cliente.models.generate_content(
                 model=modelo,
@@ -86,6 +94,10 @@ class ProveedorGoogleGemini(ProveedorIa):
                 or "rate limit" in mensaje.lower()
                 or "quota" in mensaje.lower()
                 or "unavailable" in mensaje.lower()
+                or "high demand" in mensaje.lower()
+                or "resource exhausted" in mensaje.lower()
+                or "overloaded" in mensaje.lower()
+                or "timeout" in mensaje.lower()
             ):
                 raise ProveedorIaRecuperableException(
                     f"Error temporal del proveedor Gemini ({codigo}): {mensaje}"
@@ -97,14 +109,14 @@ class ProveedorGoogleGemini(ProveedorIa):
             raise ProveedorIaNoRecuperableException(
                 f"Error no recuperable de Gemini ({codigo}): {mensaje}"
             ) from e
-        except (TimeoutError, errors.ClientError) as e:
+        except (TimeoutError, errors.ClientError, httpx.TimeoutException, httpx.RequestError) as e:
             logger.error(
-                "Timeout o error de cliente con Gemini (modelo=%s): %s",
+                "Timeout o error de conexión con Gemini (modelo=%s): %s",
                 modelo,
                 str(e),
             )
             raise ProveedorIaRecuperableException(
-                f"Timeout o error de conexión con Gemini: {str(e)}"
+                f"Timeout o error de conexión con Gemini ({type(e).__name__}): {str(e)}"
             ) from e
         except Exception as e:
             logger.error(
@@ -132,9 +144,13 @@ class ProveedorGoogleGemini(ProveedorIa):
             "No agregues comentarios, explicaciones, formato markdown, comillas ni texto adicional. "
             "Devuelve únicamente las palabras transcritas."
         )
+        timeout_voz = getattr(settings, "IA_TRANSCRIPCION_TIMEOUT_SECONDS", 15.0)
+        timeout_ms = int(timeout_voz * 1000)
         try:
             config = types.GenerateContentConfig(
                 temperature=0.0,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                http_options=types.HttpOptions(timeout=timeout_ms),
             )
             respuesta = cliente.models.generate_content(
                 model=modelo,
@@ -156,6 +172,10 @@ class ProveedorGoogleGemini(ProveedorIa):
                 or "rate limit" in mensaje.lower()
                 or "quota" in mensaje.lower()
                 or "unavailable" in mensaje.lower()
+                or "high demand" in mensaje.lower()
+                or "resource exhausted" in mensaje.lower()
+                or "overloaded" in mensaje.lower()
+                or "timeout" in mensaje.lower()
             ):
                 raise ProveedorIaRecuperableException(
                     f"Error temporal del proveedor Gemini ({codigo}): {mensaje}"
@@ -167,14 +187,14 @@ class ProveedorGoogleGemini(ProveedorIa):
             raise ProveedorIaNoRecuperableException(
                 f"Error no recuperable de Gemini ({codigo}): {mensaje}"
             ) from e
-        except (TimeoutError, errors.ClientError) as e:
+        except (TimeoutError, errors.ClientError, httpx.TimeoutException, httpx.RequestError) as e:
             logger.error(
-                "Timeout o error de cliente con Gemini al transcribir (modelo=%s): %s",
+                "Timeout o error de conexión con Gemini al transcribir (modelo=%s): %s",
                 modelo,
                 str(e),
             )
             raise ProveedorIaRecuperableException(
-                f"Timeout o error de conexión con Gemini: {str(e)}"
+                f"Timeout o error de conexión con Gemini ({type(e).__name__}): {str(e)}"
             ) from e
         except Exception as e:
             logger.error(
@@ -197,10 +217,13 @@ class ProveedorGoogleGemini(ProveedorIa):
         cliente = self._obtener_cliente()
         mime_base = mime_type.split(";")[0].strip().lower()
         part_imagen = types.Part.from_bytes(data=contenido_imagen, mime_type=mime_base)
+        timeout_ms = int(self._timeout_segundos * 1000) if self._timeout_segundos else 10000
         try:
             config = types.GenerateContentConfig(
                 temperature=0.1,
                 response_mime_type="application/json",
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                http_options=types.HttpOptions(timeout=timeout_ms),
             )
             respuesta = cliente.models.generate_content(
                 model=modelo,
@@ -222,6 +245,10 @@ class ProveedorGoogleGemini(ProveedorIa):
                 or "rate limit" in mensaje.lower()
                 or "quota" in mensaje.lower()
                 or "unavailable" in mensaje.lower()
+                or "high demand" in mensaje.lower()
+                or "resource exhausted" in mensaje.lower()
+                or "overloaded" in mensaje.lower()
+                or "timeout" in mensaje.lower()
             ):
                 raise ProveedorIaRecuperableException(
                     f"Error temporal del proveedor Gemini ({codigo}): {mensaje}"
@@ -233,14 +260,14 @@ class ProveedorGoogleGemini(ProveedorIa):
             raise ProveedorIaNoRecuperableException(
                 f"Error no recuperable de Gemini ({codigo}): {mensaje}"
             ) from e
-        except (TimeoutError, errors.ClientError) as e:
+        except (TimeoutError, errors.ClientError, httpx.TimeoutException, httpx.RequestError) as e:
             logger.error(
-                "Timeout o error de cliente con Gemini al analizar imagen (modelo=%s): %s",
+                "Timeout o error de conexión con Gemini al analizar imagen (modelo=%s): %s",
                 modelo,
                 str(e),
             )
             raise ProveedorIaRecuperableException(
-                f"Timeout o error de conexión con Gemini: {str(e)}"
+                f"Timeout o error de conexión con Gemini ({type(e).__name__}): {str(e)}"
             ) from e
         except Exception as e:
             logger.error(

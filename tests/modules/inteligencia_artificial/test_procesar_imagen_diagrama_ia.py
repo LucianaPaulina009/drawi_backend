@@ -96,7 +96,6 @@ from app.modules.inteligencia_artificial.infrastructure.persistence.repositories
 from app.shared.infrastructure.db.better_auth import BetterAuthUser
 from app.shared.infrastructure.unit_of_work import SqlModelUnitOfWork
 from tests.modules.inteligencia_artificial.fixtures.imagen_ia_fixtures import (
-    FakeAlmacenamientoImagen,
     FakeProveedorIaImagen,
     PNG_VALIDO_BYTES,
 )
@@ -184,7 +183,6 @@ def _crear_entorno_imagen(session: Session, respuesta_json_imagen: str = "{}"):
 
     fake_proveedor = FakeProveedorIaImagen(respuesta_json_imagen=respuesta_json_imagen)
     coordinador = EstrategiaModelosGemini(fake_proveedor)
-    fake_storage = FakeAlmacenamientoImagen()
 
     use_case = ProcesarImagenDiagramaIaUseCase(
         proyecto_repository=p_repo,
@@ -196,7 +194,6 @@ def _crear_entorno_imagen(session: Session, respuesta_json_imagen: str = "{}"):
         coordinador_gemini=coordinador,
         ejecutor_plan=ejecutor,
         uow=uow,
-        almacenamiento_temporal=fake_storage,
         colaborador_repository=col_repo,
     )
 
@@ -205,7 +202,6 @@ def _crear_entorno_imagen(session: Session, respuesta_json_imagen: str = "{}"):
         "proyecto": proyecto,
         "diagrama": diagrama,
         "use_case": use_case,
-        "fake_storage": fake_storage,
         "fake_proveedor": fake_proveedor,
         "clase_repo": c_repo,
         "atributo_repo": a_repo,
@@ -270,8 +266,10 @@ def test_importar_imagen_diagrama_vacio_exito(session: Session):
     assert "Cliente" in interaccion.respuesta_ia
     assert "Pedido" in interaccion.respuesta_ia
 
-    # Verificar que Cloudinary temporal fue destruido en finally
-    assert len(env["fake_storage"].destruidos) == 1
+    # Verificar que el proveedor Gemini recibió directamente los bytes en memoria
+    assert len(env["fake_proveedor"].llamadas_imagen) == 1
+    assert env["fake_proveedor"].llamadas_imagen[0]["contenido_imagen_len"] == len(PNG_VALIDO_BYTES)
+    assert env["fake_proveedor"].llamadas_imagen[0]["mime_type"] == "image/png"
 
     # Verificar elementos creados en BD
     clases = env["clase_repo"].listar_por_diagrama(env["diagrama"].id)
@@ -419,7 +417,7 @@ def test_idempotencia_conflicto_tipo_distinto(session: Session):
         env["use_case"].execute(cmd)
 
 
-def test_error_gemini_limpieza_finally(session: Session):
+def test_error_gemini_registra_interaccion_error(session: Session):
     env = _crear_entorno_imagen(session)
     env["fake_proveedor"].debe_fallar_imagen = True
 
@@ -434,9 +432,6 @@ def test_error_gemini_limpieza_finally(session: Session):
 
     with pytest.raises(ProveedorIaRecuperableException):
         env["use_case"].execute(cmd)
-
-    # Limpieza en finally garantizada
-    assert len(env["fake_storage"].destruidos) == 1
 
     # Interacción registrada en ERROR
     interacciones = env["interaccion_repo"].listar_por_diagrama(env["diagrama"].id)

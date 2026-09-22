@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 from uuid import UUID
@@ -128,6 +129,21 @@ class PlanificadorImportacionImagen:
             return False
         c = card.strip().lower()
         return c in {"*", "0..*", "1..*", "n", "m", "0..n", "0..m", "1..n", "1..m"}
+
+    @classmethod
+    def limpiar_nombre_atributo(cls, nombre: str) -> str:
+        s = nombre.strip()
+        # Quitar visibilidad UML (+, -, #, ~) al inicio
+        s = re.sub(r"^[\+\-\#\~]\s*", "", s)
+        # Quitar estereotipos <<PK>>, <<FK>>, (PK), (FK), [PK], [FK]
+        s = re.sub(r"<<.*?>>|\(.*?\)|\[.*?\]", "", s)
+        # Quitar sufijos de tipo como ": int", ": varchar(50)", etc.
+        if ":" in s:
+            s = s.split(":", 1)[0]
+        # Quitar sufijo "PK" o "FK" aislado al final
+        s = re.sub(r"\s+(?:pk|fk)\b", "", s, flags=re.IGNORECASE)
+        s = s.strip()
+        return s if s else nombre.strip()
 
     @classmethod
     def normalizar_nombre_base(cls, nombre: str) -> str:
@@ -427,19 +443,14 @@ class PlanificadorImportacionImagen:
 
         # Paso 1: Reconciliación de N:M e identificación de clases intermedias explícitas
         clases_intermedias_nm_asignadas: dict[
-            str, tuple[RelacionReconocidaIa, AtributoReconocidoIa | None, AtributoReconocidoIa | None, ClaseReconocidaIa, ClaseReconocidaIa | None, ClaseReconocidaIa | None]
+            str, tuple[RelacionReconocidaIa | None, AtributoReconocidoIa | None, AtributoReconocidoIa | None, ClaseReconocidaIa, ClaseReconocidaIa | None, ClaseReconocidaIa | None]
         ] = {}
         acciones_nm: list[AccionCrearEstructuraNmSchema] = []
         relaciones_a_omitir: set[int] = set()
+        pares_nm_procesados: set[tuple[str, str]] = set()
 
+        # 1.1 Analizar relaciones del diagrama (incluyendo relaciones marcadas erróneamente como 1:N con intermedia visible)
         for rel_idx, rel in enumerate(diagrama_reconocido.relaciones):
-            es_nm_detectado = rel.es_nm or (
-                cls.es_cardinalidad_muchos(rel.cardinalidad_origen)
-                and cls.es_cardinalidad_muchos(rel.cardinalidad_destino)
-            )
-            if not es_nm_detectado:
-                continue
-
             orig_ref = rel.origen_ref.strip()
             dest_ref = rel.destino_ref.strip()
             orig_obj = clases_reconocidas_map.get(orig_ref.lower())
@@ -448,12 +459,38 @@ class PlanificadorImportacionImagen:
             orig_nombre = (orig_obj.nombre if orig_obj else orig_ref).strip().lower()
             dest_nombre = (dest_obj.nombre if dest_obj else dest_ref).strip().lower()
 
+            # Comprobar si hay una clase intermedia en el diagrama que vincule a orig_obj y dest_obj
+            tiene_intermedia_evidente = False
+            if orig_obj and dest_obj and orig_obj.referencia_semantica.lower() != dest_obj.referencia_semantica.lower():
+                for c_cand in diagrama_reconocido.clases:
+                    es_c, _, _, _ = cls.evaluar_candidato_intermedia_nm(
+                        c_cand, orig_obj, dest_obj, diagrama_reconocido.relaciones
+                    )
+                    if es_c:
+                        tiene_intermedia_evidente = True
+                        break
+
+            es_nm_detectado = rel.es_nm or (
+                cls.es_cardinalidad_muchos(rel.cardinalidad_origen)
+                and cls.es_cardinalidad_muchos(rel.cardinalidad_destino)
+            ) or tiene_intermedia_evidente
+
+            if not es_nm_detectado:
+                continue
+
+            par_clave = (orig_nombre, dest_nombre)
+            par_clave_inv = (dest_nombre, orig_nombre)
+            if par_clave in pares_nm_procesados or par_clave_inv in pares_nm_procesados:
+                relaciones_a_omitir.add(rel_idx)
+                continue
+
             # Verificar si la relación N:M ya existe en el diagrama existente
             id_orig_ex = plan.clases_existentes_mapeo.get(orig_nombre) or plan.clases_existentes_mapeo.get(orig_ref.lower()) or (mapa_existentes_por_nombre.get(orig_nombre).id if orig_nombre in mapa_existentes_por_nombre else None)
             id_dest_ex = plan.clases_existentes_mapeo.get(dest_nombre) or plan.clases_existentes_mapeo.get(dest_ref.lower()) or (mapa_existentes_por_nombre.get(dest_nombre).id if dest_nombre in mapa_existentes_por_nombre else None)
 
             if id_orig_ex and id_dest_ex and (id_orig_ex, id_dest_ex) in estructuras_nm_existentes_set:
                 relaciones_a_omitir.add(rel_idx)
+                pares_nm_procesados.add(par_clave)
                 plan.advertencias.append(
                     f"Estructura N:M entre '{orig_nombre}' y '{dest_nombre}' ya existe en el diagrama; omitida para evitar duplicados."
                 )
@@ -475,6 +512,9 @@ class PlanificadorImportacionImagen:
 
             if not orig_obj or not dest_obj:
                 continue
+
+            pares_nm_procesados.add(par_clave)
+            relaciones_a_omitir.add(rel_idx)
 
             # Buscar candidatas a clase intermedia en las clases reconocidas
             candidatos: list[tuple[ClaseReconocidaIa, int, AtributoReconocidoIa | None, AtributoReconocidoIa | None]] = []
@@ -542,6 +582,46 @@ class PlanificadorImportacionImagen:
                     acciones_nm.append(accion_nm)
                     plan.clases_creadas_referencias.append(c_sel.referencia_semantica)
 
+        # 1.2 Detectar clases intermedias estructurales que no tenían relación directa A-B
+        for c_cand in diagrama_reconocido.clases:
+            if c_cand.referencia_semantica.lower() in clases_intermedias_nm_asignadas:
+                continue
+
+            hallazgos_par: list[tuple[ClaseReconocidaIa, ClaseReconocidaIa, int, AtributoReconocidoIa | None, AtributoReconocidoIa | None]] = []
+            todas_clases = [c for c in diagrama_reconocido.clases if c.referencia_semantica.lower() != c_cand.referencia_semantica.lower()]
+
+            for i in range(len(todas_clases)):
+                for j in range(i + 1, len(todas_clases)):
+                    cl_a = todas_clases[i]
+                    cl_b = todas_clases[j]
+                    es_c, score_c, attr_a, attr_b = cls.evaluar_candidato_intermedia_nm(
+                        c_cand, cl_a, cl_b, diagrama_reconocido.relaciones
+                    )
+                    if es_c:
+                        hallazgos_par.append((cl_a, cl_b, score_c, attr_a, attr_b))
+
+            if len(hallazgos_par) == 1:
+                cl_a, cl_b, score_c, attr_a, attr_b = hallazgos_par[0]
+                par_k = (cl_a.nombre.strip().lower(), cl_b.nombre.strip().lower())
+                par_k_inv = (cl_b.nombre.strip().lower(), cl_a.nombre.strip().lower())
+
+                if par_k not in pares_nm_procesados and par_k_inv not in pares_nm_procesados:
+                    pares_nm_procesados.add(par_k)
+                    clases_intermedias_nm_asignadas[c_cand.referencia_semantica.lower()] = (
+                        None, attr_a, attr_b, c_cand, cl_a, cl_b
+                    )
+                    pos_x, pos_y = posiciones_layout.get(c_cand.referencia_semantica, (200, 200))
+                    accion_nm = AccionCrearEstructuraNmSchema(
+                        clase_origen_referencia=cl_a.referencia_semantica,
+                        clase_destino_referencia=cl_b.referencia_semantica,
+                        nombre_intermedia=c_cand.nombre.strip(),
+                        referencia_intermedia=c_cand.referencia_semantica.strip(),
+                        posicion=PosicionSchema(x=float(pos_x), y=float(pos_y)),
+                        ancho=280.0,
+                    )
+                    acciones_nm.append(accion_nm)
+                    plan.clases_creadas_referencias.append(c_cand.referencia_semantica)
+
         # Paso 2: Reconciliar clases regulares
         acciones_clases: list[AccionCrearClaseSchema] = []
         for clase_rec in diagrama_reconocido.clases:
@@ -601,6 +681,12 @@ class PlanificadorImportacionImagen:
             orig_nombre = (orig_obj.nombre if orig_obj else orig_ref).strip().lower()
             dest_nombre = (dest_obj.nombre if dest_obj else dest_ref).strip().lower()
 
+            par_nm = (orig_nombre, dest_nombre)
+            par_nm_inv = (dest_nombre, orig_nombre)
+            if par_nm in pares_nm_procesados or par_nm_inv in pares_nm_procesados:
+                relaciones_a_omitir.add(rel_idx)
+                continue
+
             id_orig_ex = plan.clases_existentes_mapeo.get(orig_nombre) or plan.clases_existentes_mapeo.get(orig_ref.lower())
             id_dest_ex = plan.clases_existentes_mapeo.get(dest_nombre) or plan.clases_existentes_mapeo.get(dest_ref.lower())
 
@@ -629,7 +715,8 @@ class PlanificadorImportacionImagen:
                     candidato: AtributoReconocidoIa | None = None
 
                     for a in clase_fk_obj.atributos:
-                        if a.es_pk or a.nombre.lower() == "id":
+                        nombre_limpio_a = cls.limpiar_nombre_atributo(a.nombre)
+                        if a.es_pk or nombre_limpio_a.lower() == "id":
                             continue
                         if (
                             a.fk_destino_ref
@@ -641,20 +728,22 @@ class PlanificadorImportacionImagen:
 
                     if not candidato:
                         for a in clase_fk_obj.atributos:
-                            if a.es_pk or a.nombre.lower() == "id":
+                            nombre_limpio_a = cls.limpiar_nombre_atributo(a.nombre)
+                            if a.es_pk or nombre_limpio_a.lower() == "id":
                                 continue
                             if a.es_fk and cls.coincide_nombre_fk(
-                                a.nombre, nombre_clase_ref, es_rec
+                                nombre_limpio_a, nombre_clase_ref, es_rec
                             ):
                                 candidato = a
                                 break
 
                     if not candidato:
                         for a in clase_fk_obj.atributos:
-                            if a.es_pk or a.nombre.lower() == "id":
+                            nombre_limpio_a = cls.limpiar_nombre_atributo(a.nombre)
+                            if a.es_pk or nombre_limpio_a.lower() == "id":
                                 continue
                             if cls.coincide_nombre_fk(
-                                a.nombre, nombre_clase_ref, es_rec
+                                nombre_limpio_a, nombre_clase_ref, es_rec
                             ):
                                 candidato = a
                                 break
@@ -663,19 +752,20 @@ class PlanificadorImportacionImagen:
                         fk_attrs = [
                             a
                             for a in clase_fk_obj.atributos
-                            if a.es_fk and not a.es_pk and a.nombre.lower() != "id"
+                            if a.es_fk and not a.es_pk and cls.limpiar_nombre_atributo(a.nombre).lower() != "id"
                         ]
                         if len(fk_attrs) == 1:
                             candidato = fk_attrs[0]
 
                     if candidato:
+                        cand_nom_limpio = cls.limpiar_nombre_atributo(candidato.nombre)
                         clave_attr = (
                             clase_fk_obj.referencia_semantica.lower(),
-                            candidato.nombre.strip().lower(),
+                            cand_nom_limpio.lower(),
                         )
                         atributos_fk_excluidos.add(clave_attr)
                         info_fk_por_relacion[rel_idx] = (
-                            candidato.nombre.strip(),
+                            cand_nom_limpio,
                             clase_fk_ref,
                         )
 
@@ -702,8 +792,9 @@ class PlanificadorImportacionImagen:
             )
             acciones_relaciones.append(accion_rel)
 
-        # Paso 4: Reconciliar atributos
-        acciones_atributos: list[AccionIaUnion] = []
+        # Paso 4: Reconciliar atributos separando clases regulares de intermedias N:M
+        acciones_atributos_regulares: list[AccionIaUnion] = []
+        acciones_atributos_intermedias: list[AccionIaUnion] = []
 
         for clase_rec in diagrama_reconocido.clases:
             nombre_norm = clase_rec.nombre.strip().lower()
@@ -718,16 +809,17 @@ class PlanificadorImportacionImagen:
                 ]
                 nombres_fk_excluir: set[str] = set()
                 if attr_fk_a:
-                    nombres_fk_excluir.add(attr_fk_a.nombre.strip().lower())
+                    nombres_fk_excluir.add(cls.limpiar_nombre_atributo(attr_fk_a.nombre).lower())
                 if attr_fk_b:
-                    nombres_fk_excluir.add(attr_fk_b.nombre.strip().lower())
+                    nombres_fk_excluir.add(cls.limpiar_nombre_atributo(attr_fk_b.nombre).lower())
 
                 pk_rec = next((a for a in clase_rec.atributos if a.es_pk), None)
                 pk_mapeada = False
+                nombres_creados_en_clase: set[str] = {"id"}
 
                 for attr in clase_rec.atributos:
                     tipo_norm = cls.normalizar_tipo_dato(attr.tipo_detectado)
-                    attr_name = attr.nombre.strip()
+                    attr_name = cls.limpiar_nombre_atributo(attr.nombre)
                     attr_name_norm = attr_name.lower()
 
                     if attr.es_pk or (pk_rec is None and attr_name_norm == "id" and not pk_mapeada):
@@ -737,23 +829,25 @@ class PlanificadorImportacionImagen:
                                 from app.modules.inteligencia_artificial.application.services.validador_respuesta_ia import (
                                     AccionActualizarAtributoSchema,
                                 )
-                                acciones_atributos.append(
+                                acciones_atributos_intermedias.append(
                                     AccionActualizarAtributoSchema(
                                         clase_referencia=ref_semantica,
                                         atributo_referencia="id",
                                         nuevo_nombre=attr_name,
-                                        tipo_dato=tipo_norm if tipo_norm != "integer" else None,
+                                        tipo_dato=None,
                                     )
                                 )
+                                nombres_creados_en_clase.add(attr_name_norm)
                         continue
 
-                    if attr_name_norm in nombres_fk_excluir:
+                    if attr_name_norm in nombres_fk_excluir or attr_name_norm in nombres_creados_en_clase:
                         continue
                     if orig_nm and cls.coincide_nombre_fk(attr_name, orig_nm.nombre):
                         continue
                     if dest_nm and cls.coincide_nombre_fk(attr_name, dest_nm.nombre):
                         continue
 
+                    nombres_creados_en_clase.add(attr_name_norm)
                     accion_attr = AccionCrearAtributoSchema(
                         clase_referencia=ref_semantica,
                         nombre=attr_name,
@@ -762,41 +856,47 @@ class PlanificadorImportacionImagen:
                         es_unico=False,
                         es_llave_primaria=False,
                     )
-                    acciones_atributos.append(accion_attr)
+                    acciones_atributos_intermedias.append(accion_attr)
                 continue
 
             pk_reconocida = next((a for a in clase_rec.atributos if a.es_pk), None)
             pk_ya_mapeada = False
+            nombres_creados_en_clase: set[str] = {"id"}
 
             for attr in clase_rec.atributos:
                 tipo_norm = cls.normalizar_tipo_dato(attr.tipo_detectado)
-                nombre_attr = attr.nombre.strip()
+                nombre_attr = cls.limpiar_nombre_atributo(attr.nombre)
+                nombre_attr_norm = nombre_attr.lower()
 
                 if attr.es_pk or (
                     pk_reconocida is None
-                    and nombre_attr.lower() == "id"
+                    and nombre_attr_norm == "id"
                     and not pk_ya_mapeada
                 ):
                     if not pk_ya_mapeada:
                         pk_ya_mapeada = True
-                        if nombre_attr.lower() != "id":
+                        if nombre_attr_norm != "id":
                             from app.modules.inteligencia_artificial.application.services.validador_respuesta_ia import (
                                 AccionActualizarAtributoSchema,
                             )
 
-                            acciones_atributos.append(
+                            acciones_atributos_regulares.append(
                                 AccionActualizarAtributoSchema(
                                     clase_referencia=ref_semantica,
                                     atributo_referencia="id",
                                     nuevo_nombre=nombre_attr,
-                                    tipo_dato=tipo_norm if tipo_norm != "integer" else None,
+                                    tipo_dato=None,
                                 )
                             )
+                            nombres_creados_en_clase.add(nombre_attr_norm)
                     continue
 
-                if (ref_semantica.lower(), nombre_attr.lower()) in atributos_fk_excluidos:
+                if (ref_semantica.lower(), nombre_attr_norm) in atributos_fk_excluidos:
+                    continue
+                if nombre_attr_norm in nombres_creados_en_clase:
                     continue
 
+                nombres_creados_en_clase.add(nombre_attr_norm)
                 accion_attr = AccionCrearAtributoSchema(
                     clase_referencia=ref_semantica,
                     nombre=nombre_attr,
@@ -805,12 +905,13 @@ class PlanificadorImportacionImagen:
                     es_unico=False,
                     es_llave_primaria=False,
                 )
-                acciones_atributos.append(accion_attr)
+                acciones_atributos_regulares.append(accion_attr)
 
-        # Paso 5: Ensamblar plan en orden de dependencias
+        # Paso 5: Ensamblar plan en orden estricto de dependencias
         plan.acciones.extend(acciones_clases)
+        plan.acciones.extend(acciones_atributos_regulares)
         plan.acciones.extend(acciones_nm)
-        plan.acciones.extend(acciones_atributos)
+        plan.acciones.extend(acciones_atributos_intermedias)
         plan.acciones.extend(acciones_relaciones)
 
         return plan

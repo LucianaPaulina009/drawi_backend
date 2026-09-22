@@ -1011,3 +1011,133 @@ def test_planificador_nm_ya_existente_en_diagrama_omite_duplicados():
     assert len(clases_creadas) == 0
     assert plan.clases_existentes_mapeo["ref_pv"] == c_inter_id
 
+
+def test_planificador_nm_reconocida_como_1_a_n_se_promueve_a_nm():
+    """Verifica que si Gemini clasifica la relación como 1:N (cardinalidad '1' y '0..*', es_nm=False),
+    pero existe una clase intermedia explícita con FKs a ambos extremos, el planificador la promueva a N:M."""
+    diag_rec = DiagramaReconocidoIa(
+        clases=[
+            ClaseReconocidaIa(
+                referencia_semantica="ref_prod",
+                nombre="Producto",
+                atributos=[AtributoReconocidoIa(nombre="id", es_pk=True)],
+            ),
+            ClaseReconocidaIa(
+                referencia_semantica="ref_venta",
+                nombre="Venta",
+                atributos=[AtributoReconocidoIa(nombre="id", es_pk=True)],
+            ),
+            ClaseReconocidaIa(
+                referencia_semantica="ref_pv",
+                nombre="ProductoVenta",
+                atributos=[
+                    AtributoReconocidoIa(nombre="id", es_pk=True),
+                    AtributoReconocidoIa(nombre="id_producto", es_fk=True),
+                    AtributoReconocidoIa(nombre="id_venta", es_fk=True),
+                    AtributoReconocidoIa(nombre="cantidad", tipo_detectado="integer"),
+                ],
+            ),
+        ],
+        relaciones=[
+            RelacionReconocidaIa(
+                origen_ref="ref_prod",
+                destino_ref="ref_venta",
+                tipo="asociacion",
+                cardinalidad_origen="1",
+                cardinalidad_destino="0..*",
+                es_nm=False,
+            )
+        ],
+    )
+
+    plan = PlanificadorImportacionImagen.construir_plan(
+        diagrama_reconocido=diag_rec,
+        diagrama_existente=None,
+        posiciones_layout={"ref_prod": (100, 100), "ref_venta": (700, 100), "ref_pv": (400, 300)},
+    )
+
+    # 1. No debe haber creado relación 1:N en acciones_relaciones
+    rels_1n = [a for a in plan.acciones if isinstance(a, AccionCrearRelacionSchema)]
+    assert len(rels_1n) == 0
+
+    # 2. Debe haber creado una estructura N:M
+    acciones_nm = [a for a in plan.acciones if isinstance(a, AccionCrearEstructuraNmSchema)]
+    assert len(acciones_nm) == 1
+    assert acciones_nm[0].clase_origen_referencia == "ref_prod"
+    assert acciones_nm[0].clase_destino_referencia == "ref_venta"
+    assert acciones_nm[0].nombre_intermedia == "ProductoVenta"
+    assert acciones_nm[0].referencia_intermedia == "ref_pv"
+
+    # 3. Solo Producto y Venta se crean como clases normales
+    clases = [a for a in plan.acciones if isinstance(a, AccionCrearClaseSchema)]
+    assert len(clases) == 2
+    nombres_clases = {c.nombre for c in clases}
+    assert nombres_clases == {"Producto", "Venta"}
+
+
+def test_planificador_nm_detectada_estructuralmente_sin_relacion_directa():
+    """Verifica que si Gemini no emite relación directa A-B pero emite relaciones A->C y B->C
+    donde C tiene FKs a A y B, el planificador detecte la estructura N:M y no duplique relaciones 1:N hacia C."""
+    diag_rec = DiagramaReconocidoIa(
+        clases=[
+            ClaseReconocidaIa(
+                referencia_semantica="ref_est",
+                nombre="Estudiante",
+                atributos=[AtributoReconocidoIa(nombre="id", es_pk=True)],
+            ),
+            ClaseReconocidaIa(
+                referencia_semantica="ref_cur",
+                nombre="Curso",
+                atributos=[AtributoReconocidoIa(nombre="id", es_pk=True)],
+            ),
+            ClaseReconocidaIa(
+                referencia_semantica="ref_mat",
+                nombre="Matricula",
+                atributos=[
+                    AtributoReconocidoIa(nombre="id", es_pk=True),
+                    AtributoReconocidoIa(nombre="estudiante_id", es_fk=True),
+                    AtributoReconocidoIa(nombre="curso_id", es_fk=True),
+                    AtributoReconocidoIa(nombre="fecha", tipo_detectado="date"),
+                ],
+            ),
+        ],
+        relaciones=[
+            RelacionReconocidaIa(
+                origen_ref="ref_est",
+                destino_ref="ref_mat",
+                tipo="asociacion",
+                cardinalidad_origen="1",
+                cardinalidad_destino="0..*",
+            ),
+            RelacionReconocidaIa(
+                origen_ref="ref_cur",
+                destino_ref="ref_mat",
+                tipo="asociacion",
+                cardinalidad_origen="1",
+                cardinalidad_destino="0..*",
+            ),
+        ],
+    )
+
+    plan = PlanificadorImportacionImagen.construir_plan(
+        diagrama_reconocido=diag_rec,
+        diagrama_existente=None,
+        posiciones_layout={"ref_est": (100, 100), "ref_cur": (700, 100), "ref_mat": (400, 300)},
+    )
+
+    # 1. No debe haber relaciones 1:N hacia Matricula
+    rels_1n = [a for a in plan.acciones if isinstance(a, AccionCrearRelacionSchema)]
+    assert len(rels_1n) == 0
+
+    # 2. Debe haber creado una estructura N:M
+    acciones_nm = [a for a in plan.acciones if isinstance(a, AccionCrearEstructuraNmSchema)]
+    assert len(acciones_nm) == 1
+    assert acciones_nm[0].nombre_intermedia == "Matricula"
+    assert acciones_nm[0].referencia_intermedia == "ref_mat"
+
+    # 3. Solo Estudiante y Curso como clases normales
+    clases = [a for a in plan.acciones if isinstance(a, AccionCrearClaseSchema)]
+    assert len(clases) == 2
+    nombres_clases = {c.nombre for c in clases}
+    assert nombres_clases == {"Estudiante", "Curso"}
+

@@ -55,5 +55,4 @@ watchfiles==1.2.0
 websockets==16.0
 google-genai>=2.0.0
 pytest>=8.0.0
-cloudinary==1.42.2
-six==1.17.0
+

@@ -87,7 +87,7 @@ class Settings(BaseSettings):
         default="gemini-3.5-flash-lite"
     )
     IA_GEMINI_TIMEOUT_SECONDS: float = Field(
-        default=4.0, gt=0
+        default=10.0, gt=0
     )
     IA_GEMINI_RETRY_BACKOFF_MS: int = Field(
         default=300, ge=0
@@ -106,16 +106,9 @@ class Settings(BaseSettings):
         default=15.0, gt=0
     )
 
-    # ── Cloudinary / Reconocimiento de Imagen IA ─────────────────────────────
-    CLOUDINARY_CLOUD_NAME: str = Field(default="")
-    CLOUDINARY_API_KEY: str = Field(default="")
-    CLOUDINARY_API_SECRET: str = Field(default="")
-    CLOUDINARY_URL: str = Field(default="")
+    # ── Reconocimiento de Imagen IA ─────────────────────────────────────────
     IA_IMAGEN_MAX_SIZE_BYTES: int = Field(
         default=10 * 1024 * 1024, gt=0
-    )
-    IA_IMAGEN_FOLDER_PREFIX: str = Field(
-        default="drawi/temp/importaciones-uml"
     )
 
     # ── CORS ──────────────────────────────────────────────────────────────────

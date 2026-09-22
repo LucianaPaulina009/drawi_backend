@@ -46,12 +46,12 @@ class ProveedorIaException(DomainException):
     message = "Error en el proveedor de inteligencia artificial."
 
 
-class ProveedorIaRecuperableException(ProveedorIaException):
+class ProveedorIaRecuperableException(ServiceUnavailableException, ProveedorIaException):
     code = "ERROR_RECUPERABLE_PROVEEDOR_IA"
-    message = "Error recuperable (timeout, rate limit o indisponibilidad) en el proveedor de IA."
+    message = "DRAWI no pudo procesar la solicitud porque el servicio de IA está temporalmente ocupado. Intenta nuevamente."
 
 
-class ProveedorIaNoRecuperableException(ProveedorIaException):
+class ProveedorIaNoRecuperableException(BadGatewayException, ProveedorIaException):
     code = "ERROR_NO_RECUPERABLE_PROVEEDOR_IA"
     message = "Error no recuperable en el proveedor de IA."
 
@@ -119,13 +119,3 @@ class FormatoImagenNoSoportadoException(UnsupportedMediaTypeException):
 class TamanoImagenExcedidoException(PayloadTooLargeException):
     code = "TAMANO_IMAGEN_EXCEDIDO"
     message = "El tamaño de la imagen excede el límite máximo permitido de 10 MiB."
-
-
-class ProveedorAlmacenamientoImagenException(BadGatewayException):
-    code = "ERROR_PROVEEDOR_ALMACENAMIENTO_IMAGEN"
-    message = "Error al procesar la imagen con el proveedor de almacenamiento temporal."
-
-
-class ProveedorAlmacenamientoImagenRecuperableException(ServiceUnavailableException):
-    code = "ERROR_RECUPERABLE_PROVEEDOR_ALMACENAMIENTO_IMAGEN"
-    message = "El servicio de almacenamiento temporal no está disponible o excedió el tiempo de espera."

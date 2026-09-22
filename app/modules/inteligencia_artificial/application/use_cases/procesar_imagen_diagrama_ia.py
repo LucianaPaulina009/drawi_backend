@@ -32,10 +32,6 @@ from app.modules.gestion_colaboradores.domain.repositories.colaborador_proyecto_
 from app.modules.gestion_proyectos.domain.repositories.proyecto_repository import (
     ProyectoRepository,
 )
-from app.modules.inteligencia_artificial.application.ports.providers.almacenamiento_imagen_temporal import (
-    AlmacenamientoImagenTemporal,
-    RecursoImagenTemporal,
-)
 from app.modules.inteligencia_artificial.application.services.constructor_contexto_imagen_ia import (
     ConstructorContextoImagenIa,
 )
@@ -87,16 +83,14 @@ class ProcesarImagenDiagramaIaUseCase:
     """
     Caso de uso para importar y reconstruir un diagrama UML desde una imagen.
     
-    Flujo:
+    Flujo 100% efímero en memoria (cero persistencia de imagen):
     1. Autorizar permisos de edición sobre el diagrama (403 antes de costos IA).
     2. Comprobar / reservar idempotencia.
     3. Validar tamaño, MIME y magic bytes de la imagen.
-    4. Staging temporal en Cloudinary.
-    5. Análisis multimodal Gemini con fallback y circuit breaker.
-    6. Reconciliación exacta, layout sin colisiones y orden de dependencias.
-    7. Ejecución con casos de uso existentes de Diagramas y emisión de eventos.
-    8. Persistencia de 1 sola interacción en historial.
-    9. Limpieza obligatoria del recurso temporal en 'finally'.
+    4. Análisis multimodal Gemini con fallback y circuit breaker directamente desde bytes.
+    5. Reconciliación exacta, layout sin colisiones y orden de dependencias.
+    6. Ejecución con casos de uso existentes de Diagramas y emisión de eventos.
+    7. Persistencia de 1 sola interacción en historial.
     """
 
     FORMATOS_PERMITIDOS = {"image/png", "image/jpeg", "image/jpg", "image/webp"}
@@ -112,7 +106,6 @@ class ProcesarImagenDiagramaIaUseCase:
         coordinador_gemini: EstrategiaModelosGemini,
         ejecutor_plan: EjecutorPlanIa,
         uow: UnitOfWork,
-        almacenamiento_temporal: AlmacenamientoImagenTemporal | None = None,
         colaborador_repository: ColaboradorProyectoRepository | None = None,
     ) -> None:
         self.proyecto_repo = proyecto_repository
@@ -124,7 +117,6 @@ class ProcesarImagenDiagramaIaUseCase:
         self.coordinador_gemini = coordinador_gemini
         self.ejecutor_plan = ejecutor_plan
         self.uow = uow
-        self.almacenamiento_temporal = almacenamiento_temporal
         self.colaborador_repo = colaborador_repository
 
     def _validar_archivo_imagen(self, contenido: bytes, mime_type: str) -> str:
@@ -221,23 +213,12 @@ class ProcesarImagenDiagramaIaUseCase:
         self.interaccion_repo.guardar(interaccion)
         self.uow.commit()
 
-        recurso_temporal: RecursoImagenTemporal | None = None
+        interaccion.marcar_procesando()
+        self.interaccion_repo.guardar(interaccion)
+        self.uow.commit()
+
         try:
-            # 5. Staging temporal en Cloudinary (si el adaptador está provisto)
-            if self.almacenamiento_temporal:
-                try:
-                    recurso_temporal = self.almacenamiento_temporal.subir(
-                        contenido_imagen=command.contenido_imagen,
-                        mime_type=mime_validado,
-                    )
-                except Exception as err:
-                    logger.warning("Error no fatal o fallback en subida a Cloudinary: %s", err)
-
-            interaccion.marcar_procesando()
-            self.interaccion_repo.guardar(interaccion)
-            self.uow.commit()
-
-            # 6. Analizar imagen con Gemini multimodal
+            # 5. Analizar imagen directamente en memoria con Gemini multimodal
             prompt_sistema = ConstructorContextoImagenIa.obtener_prompt_sistema()
             texto_json_reconocido = self.coordinador_gemini.analizar_imagen_con_fallback(
                 contenido_imagen=command.contenido_imagen,
@@ -245,28 +226,28 @@ class ProcesarImagenDiagramaIaUseCase:
                 prompt_estructural=prompt_sistema,
             )
 
-            # 7. Parsear respuesta JSON y validar esquema DTO
+            # 6. Parsear respuesta JSON y validar esquema DTO
             diagrama_reconocido = ConstructorContextoImagenIa.parsear_respuesta_json(
                 texto_json_reconocido
             )
 
-            # 8. Cargar estado fresco del diagrama
+            # 7. Cargar estado fresco del diagrama
             diagrama_fresco = self._obtener_diagrama_detalle_fresco(command.diagrama_id)
 
-            # 9. Calcular layout determinista en zona libre
+            # 8. Calcular layout determinista en zona libre
             posiciones_layout = ServicioLayoutImportacion.calcular_posiciones(
                 clases_reconocidas=diagrama_reconocido.clases,
                 clases_existentes=diagrama_fresco.clases,
             )
 
-            # 10. Reconciliar clases, atributos y construir plan de acciones
+            # 9. Reconciliar clases, atributos y construir plan de acciones
             plan = PlanificadorImportacionImagen.construir_plan(
                 diagrama_reconocido=diagrama_reconocido,
                 diagrama_existente=diagrama_fresco,
                 posiciones_layout=posiciones_layout,
             )
 
-            # 11. Ejecutar plan mediante casos de uso existentes de Diagramas
+            # 10. Ejecutar plan mediante casos de uso existentes de Diagramas
             resultados_pasos: list[dict[str, Any]] = []
             if plan.acciones:
                 resultados_pasos = self.ejecutor_plan.ejecutar_plan(
@@ -276,7 +257,7 @@ class ProcesarImagenDiagramaIaUseCase:
                     clases_existentes=plan.clases_existentes_mapeo,
                 )
 
-            # 12. Generar resumen final de la importación
+            # 11. Generar resumen final de la importación
             respuesta_final = self._construir_resumen_importacion(
                 plan=plan,
                 resultados_pasos=resultados_pasos,
@@ -284,7 +265,7 @@ class ProcesarImagenDiagramaIaUseCase:
 
             interaccion.completar(
                 respuesta_ia=respuesta_final,
-                modelo_utilizado="gemini-3.6-flash",
+                modelo_utilizado=getattr(self.coordinador_gemini, "modelo_primario", "gemini-2.5-flash"),
                 detalle_ejecucion={
                     "pasos": resultados_pasos,
                     "clases_reutilizadas": plan.clases_reutilizadas,
@@ -306,7 +287,7 @@ class ProcesarImagenDiagramaIaUseCase:
         except (RespuestaIaInvalidaException, PlanIaInvalidoException) as err:
             interaccion.completar(
                 respuesta_ia=f"No se pudo completar el reconocimiento del diagrama: {err.message}",
-                modelo_utilizado="gemini-3.6-flash",
+                modelo_utilizado=getattr(self.coordinador_gemini, "modelo_primario", "gemini-2.5-flash"),
                 detalle_ejecucion=[{
                     "paso": 1,
                     "tipo": "reconocimiento_imagen",
@@ -322,7 +303,7 @@ class ProcesarImagenDiagramaIaUseCase:
             total_ms = (time.monotonic() - inicio_total) * 1000.0
             logger.error("[DRAWI IA IMAGEN] Fallo técnico del proveedor IA: %s (totalMs=%.1f)", str(err), total_ms)
             interaccion.marcar_error(
-                respuesta_ia="DRAWI no pudo analizar la imagen en este momento debido a saturación del servicio. Intenta nuevamente.",
+                respuesta_ia="DRAWI no pudo procesar la imagen porque el servicio de IA está temporalmente ocupado. Intenta nuevamente.",
                 detalle_ejecucion={"error": str(err)},
             )
             self.interaccion_repo.guardar(interaccion)
@@ -339,18 +320,6 @@ class ProcesarImagenDiagramaIaUseCase:
             self.interaccion_repo.guardar(interaccion)
             self.uow.commit()
             raise
-
-        finally:
-            # 13. Limpieza garantizada del recurso temporal en Cloudinary
-            if recurso_temporal and self.almacenamiento_temporal:
-                try:
-                    self.almacenamiento_temporal.eliminar(public_id=recurso_temporal.public_id)
-                except Exception as cleanup_err:
-                    logger.warning(
-                        "Error al eliminar recurso temporal Cloudinary %s: %s",
-                        recurso_temporal.public_id,
-                        cleanup_err,
-                    )
 
     @staticmethod
     def _construir_resumen_importacion(

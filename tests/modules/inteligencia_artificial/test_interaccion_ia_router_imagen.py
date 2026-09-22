@@ -19,12 +19,10 @@ from app.modules.gestion_proyectos.infrastructure.persistence.models.proyecto_mo
     ProyectoModel,
 )
 from app.modules.inteligencia_artificial.infrastructure.api.routers.interaccion_ia_router import (
-    set_almacenamiento_imagen_override,
     set_proveedor_ia_override,
 )
 from app.shared.infrastructure.db.better_auth import BetterAuthUser
 from tests.modules.inteligencia_artificial.fixtures.imagen_ia_fixtures import (
-    FakeAlmacenamientoImagen,
     FakeProveedorIaImagen,
     PNG_VALIDO_BYTES,
 )
@@ -70,9 +68,7 @@ def test_interaccion_ia_api_imagen_exito(client: TestClient, session: Session):
     })
 
     fake_prov = FakeProveedorIaImagen(respuesta_json_imagen=json_respuesta)
-    fake_store = FakeAlmacenamientoImagen()
     set_proveedor_ia_override(fake_prov)
-    set_almacenamiento_imagen_override(fake_store)
 
     clave = str(uuid4())
     archivos = {
@@ -93,7 +89,7 @@ def test_interaccion_ia_api_imagen_exito(client: TestClient, session: Session):
     assert data["tipoInteraccion"] == "imagen"
     assert data["estado"] == "completado"
     assert "Producto" in data["respuestaIa"]
-    assert len(fake_store.destruidos) == 1
+    assert len(fake_prov.llamadas_imagen) == 1
 
 
 def test_interaccion_ia_api_imagen_vacia_rechaza(client: TestClient, session: Session):
@@ -193,3 +189,54 @@ def test_interaccion_ia_api_imagen_permiso_lector_rechazado(
     )
 
     assert res.status_code in (403, 404)
+
+
+def test_interaccion_ia_api_imagen_error_gemini_503_retorna_http_503(
+    client: TestClient, session: Session
+):
+    usuario = BetterAuthUser(
+        id="usuario-propietario-1",
+        name="Prop503",
+        email="propietario@drawi.com",
+        email_verified=True,
+    )
+    session.add(usuario)
+    session.commit()
+
+    proyecto = ProyectoModel(
+        propietario_id=usuario.id,
+        nombre="Proy 503",
+        color="azul",
+        icono="caja",
+        slug="proy-503",
+    )
+    session.add(proyecto)
+    session.commit()
+
+    diagrama = DiagramaModel(id_proyecto=proyecto.id, nombre="Página 1", numero=1)
+    session.add(diagrama)
+    session.commit()
+
+    fake_prov = FakeProveedorIaImagen()
+    fake_prov.debe_fallar_imagen = True  # Lanza ProveedorIaRecuperableException
+    set_proveedor_ia_override(fake_prov)
+
+    clave = str(uuid4())
+    archivos = {
+        "imagen": ("diagrama.png", io.BytesIO(PNG_VALIDO_BYTES), "image/png"),
+    }
+    datos = {
+        "clave_idempotencia": clave,
+    }
+
+    res = client.post(
+        f"/api/diagramas/{diagrama.id}/interacciones-ia/imagen",
+        files=archivos,
+        data=datos,
+    )
+
+    # El error técnico recuperable de Gemini DEBE retornar HTTP 503, nunca HTTP 400
+    assert res.status_code == 503, res.text
+    data = res.json()
+    assert data["error"]["code"] == "ERROR_RECUPERABLE_PROVEEDOR_IA"
+

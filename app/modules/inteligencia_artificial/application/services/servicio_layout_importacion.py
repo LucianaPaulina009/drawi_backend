@@ -110,7 +110,7 @@ class ServicioLayoutImportacion:
                 offset_x = col * (cls.ANCHO_BASE_CLASE + cls.MARGEN_HORIZONTAL_ENTRE_CLASES)
                 offset_y = fila * (cls.ALTO_BASE_HEADER + 4 * cls.ALTO_FILA_ATRIBUTO + cls.MARGEN_VERTICAL_ENTRE_CLASES)
 
-            posiciones_relativas[c.referencia_semantica] = (offset_x, offset_y, ancho_est, alto_est)
+            posiciones_relativas[c.referencia_semantica.strip()] = (offset_x, offset_y, ancho_est, alto_est)
 
         # 3. Determinar origen base (X, Y)
         if not boxes_existentes:
@@ -149,7 +149,11 @@ class ServicioLayoutImportacion:
 
         # 5. Retornar posiciones enteras redondeadas
         resultado: dict[str, tuple[int, int]] = {}
-        for ref, (off_x, off_y, _, _) in posiciones_relativas.items():
-            resultado[ref] = (int(round(base_x + off_x)), int(round(base_y + off_y)))
+        for c in clases_reconocidas:
+            ref = c.referencia_semantica.strip()
+            if ref in posiciones_relativas:
+                off_x, off_y, _, _ = posiciones_relativas[ref]
+                pos_final = (int(round(base_x + off_x)), int(round(base_y + off_y)))
+                resultado[c.referencia_semantica] = pos_final
 
         return resultado

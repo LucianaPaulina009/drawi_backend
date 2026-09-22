@@ -41,9 +41,6 @@ from app.modules.gestion_colaboradores.infrastructure.persistence.repositories.s
 from app.modules.gestion_proyectos.infrastructure.persistence.repositories.sqlmodel_proyecto_repository import (
     SQLModelProyectoRepository,
 )
-from app.modules.inteligencia_artificial.application.ports.providers.almacenamiento_imagen_temporal import (
-    AlmacenamientoImagenTemporal,
-)
 from app.modules.inteligencia_artificial.application.ports.providers.proveedor_ia import (
     ProveedorIa,
 )
@@ -100,7 +97,6 @@ router = APIRouter(prefix="/diagramas", tags=["Inteligencia Artificial"])
 
 _proveedor_ia_singleton: ProveedorIa | None = None
 _proveedor_transcripcion_singleton: ProveedorTranscripcion | None = None
-_almacenamiento_imagen_singleton: AlmacenamientoImagenTemporal | None = None
 
 
 def get_proveedor_ia() -> ProveedorIa:
@@ -129,27 +125,6 @@ def set_proveedor_transcripcion_override(
 ) -> None:
     global _proveedor_transcripcion_singleton
     _proveedor_transcripcion_singleton = override
-
-
-def get_almacenamiento_imagen() -> AlmacenamientoImagenTemporal | None:
-    global _almacenamiento_imagen_singleton
-    if _almacenamiento_imagen_singleton is None:
-        try:
-            from app.modules.inteligencia_artificial.infrastructure.external.almacenamiento_imagen_cloudinary import (
-                AlmacenamientoImagenCloudinary,
-            )
-
-            _almacenamiento_imagen_singleton = AlmacenamientoImagenCloudinary()
-        except Exception:
-            _almacenamiento_imagen_singleton = None
-    return _almacenamiento_imagen_singleton
-
-
-def set_almacenamiento_imagen_override(
-    override: AlmacenamientoImagenTemporal | None,
-) -> None:
-    global _almacenamiento_imagen_singleton
-    _almacenamiento_imagen_singleton = override
 
 
 def _a_read(entidad: InteraccionIa) -> InteraccionIaRead:
@@ -561,7 +536,6 @@ def _crear_procesar_imagen_ia_use_case(
 
     proveedor = get_proveedor_ia()
     coordinador_gemini = EstrategiaModelosGemini(proveedor)
-    almacenamiento = get_almacenamiento_imagen()
 
     crear_clase_use_case = CrearClaseUseCase(
         proyecto_repository=proyecto_repo,
@@ -717,7 +691,6 @@ def _crear_procesar_imagen_ia_use_case(
         coordinador_gemini=coordinador_gemini,
         ejecutor_plan=ejecutor_plan,
         uow=uow,
-        almacenamiento_temporal=almacenamiento,
         colaborador_repository=colaborador_repo,
     )
 

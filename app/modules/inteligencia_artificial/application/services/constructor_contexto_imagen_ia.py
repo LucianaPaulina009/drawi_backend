@@ -30,8 +30,15 @@ PROMPT_RECONOCIMIENTO_UML_IMAGEN: Final[str] = (
     "   - 'cardinalidad_origen': cardinalidad en el origen (ej: '1', '0..1', '1..*', '0..*').\n"
     "   - 'cardinalidad_destino': cardinalidad en el destino (ej: '1', '0..1', '1..*', '0..*').\n"
     "   - 'nombre': nombre o verbo de la relación si aparece en la línea (opcional).\n"
-    "   - 'es_nm': true si la relación es de muchos a muchos (* a * o N:M).\n"
-    "   - 'es_recursiva': true si origen y destino son la misma clase.\n"
+    "   - 'es_nm': true si la relación es de muchos a muchos (* a *, N:M, N a M, o si vincula dos entidades mediante una tabla/clase intermedia asociativa con FKs a ambas entidades).\n"
+    "   - 'es_recursiva': true si origen y destino son la misma clase.\n\n"
+    "REGLAS ESTRICTAS DE CARDINALIDAD:\n"
+    "- Si la relación es de MUCHOS A MUCHOS (N:M, * a *, N a M, o mediada por una tabla intermedia con FKs a ambas entidades):\n"
+    "  * Establece 'cardinalidad_origen': '0..*' (o '1..*') y 'cardinalidad_destino': '0..*' (o '1..*').\n"
+    "  * Establece 'es_nm': true.\n"
+    "  * NUNCA coloques cardinalidad '1' a '0..*' para relaciones conceptuales de muchos a muchos.\n"
+    "- Si la relación es de UNO A MUCHOS (1:N), coloca 'cardinalidad_origen': '1', 'cardinalidad_destino': '0..*' (o '1..*') y 'es_nm': false.\n"
+    "- Si la relación es de UNO A UNO (1:1), coloca 'cardinalidad_origen': '1', 'cardinalidad_destino': '1' y 'es_nm': false.\n\n"
     "4. Estima la posición espacial relativa aproximada de cada clase en la imagen: 'posicion_relativa_x' [0.0 (izquierda) a 1.0 (derecha)] y 'posicion_relativa_y' [0.0 (arriba) a 1.0 (abajo)].\n"
     "5. Si algún elemento o texto es borroso, ilegible o ambiguo, omítelo y añade una breve descripción en la lista 'advertencias'. NO inventes datos.\n"
     "6. NUNCA generes UUIDs, consultas SQL, código ni explicaciones conversacionales fuera del JSON.\n\n"
@@ -44,7 +51,7 @@ PROMPT_RECONOCIMIENTO_UML_IMAGEN: Final[str] = (
     '      "atributos": [\n'
     '        {"nombre": "id", "tipo_detectado": "integer", "es_pk": true, "es_fk": false, "permite_nulo": false},\n'
     '        {"nombre": "cliente_id", "tipo_detectado": "integer", "es_pk": false, "es_fk": true, "fk_destino_ref": "ref_cliente", "permite_nulo": false}\n'
-    "      ],\n"
+    '      ],\n'
     '      "posicion_relativa_x": 0.2,\n'
     '      "posicion_relativa_y": 0.3\n'
     "    }\n"
@@ -54,10 +61,10 @@ PROMPT_RECONOCIMIENTO_UML_IMAGEN: Final[str] = (
     '      "origen_ref": "ref_1",\n'
     '      "destino_ref": "ref_2",\n'
     '      "tipo": "asociacion",\n'
-    '      "cardinalidad_origen": "1",\n'
+    '      "cardinalidad_origen": "0..*",\n'
     '      "cardinalidad_destino": "0..*",\n'
     '      "nombre": "tiene",\n'
-    '      "es_nm": false,\n'
+    '      "es_nm": true,\n'
     '      "es_recursiva": false\n'
     "    }\n"
     "  ],\n"
@@ -80,17 +87,33 @@ class ConstructorContextoImagenIa:
 
         contenido = texto_respuesta.strip()
 
-        # Extraer bloque de markdown ```json ... ``` si estuviera presente
+        # 1. Extraer bloque de markdown ```json ... ``` si estuviera presente
         match_bloque = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", contenido)
         if match_bloque:
             contenido = match_bloque.group(1).strip()
+        else:
+            # 2. Si no hay bloque markdown, buscar el objeto JSON delimitado por { ... }
+            match_llaves = re.search(r"(\{[\s\S]*\})", contenido)
+            if match_llaves:
+                contenido = match_llaves.group(1).strip()
 
+        # 3. Intentar parseo directo
         try:
             datos = json.loads(contenido)
-        except Exception as err:
-            raise RespuestaIaInvalidaException(
-                f"La IA no devolvió un JSON válido: {str(err)}"
-            ) from err
+        except Exception:
+            # 4. Limpieza defensiva de comentarios JS y comas finales antes de fallar
+            try:
+                # Quitar comentarios de una línea // ...
+                limpio = re.sub(r"//.*", "", contenido)
+                # Quitar comentarios multilínea /* ... */
+                limpio = re.sub(r"/\*[\s\S]*?\*/", "", limpio)
+                # Quitar comas colgantes antes de } o ]
+                limpio = re.sub(r",\s*([\]}])", r"\1", limpio)
+                datos = json.loads(limpio)
+            except Exception as err:
+                raise RespuestaIaInvalidaException(
+                    f"La IA no devolvió un JSON válido: {str(err)}"
+                ) from err
 
         try:
             return DiagramaReconocidoIa.model_validate(datos)

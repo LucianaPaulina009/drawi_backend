@@ -24,11 +24,14 @@ class FakeProveedorIa(ProveedorIa):
         self,
         respuestas_por_modelo: dict[str, list[ResultadoProveedorIa | Exception] | ResultadoProveedorIa | Exception] | None = None,
         respuestas_audio_por_modelo: dict[str, list[str | Exception] | str | Exception] | None = None,
+        respuestas_imagen_por_modelo: dict[str, list[str | Exception] | str | Exception] | None = None,
     ) -> None:
         self.respuestas = respuestas_por_modelo or {}
         self.respuestas_audio = respuestas_audio_por_modelo or {}
+        self.respuestas_imagen = respuestas_imagen_por_modelo or {}
         self.modelos_llamados: list[str] = []
         self.llamadas_audio: list[str] = []
+        self.llamadas_imagen: list[str] = []
 
     def generar_respuesta(
         self,
@@ -71,6 +74,27 @@ class FakeProveedorIa(ProveedorIa):
         if isinstance(resp, str):
             return resp
         return "transcripcion ok"
+
+    def analizar_diagrama_imagen(
+        self,
+        *,
+        modelo: str,
+        contenido_imagen: bytes,
+        mime_type: str,
+        prompt_estructural: str,
+    ) -> str:
+        self.llamadas_imagen.append(modelo)
+        resp = self.respuestas_imagen.get(modelo)
+        if isinstance(resp, list):
+            item = resp.pop(0) if resp else '{"clases": []}'
+            if isinstance(item, Exception):
+                raise item
+            return item
+        if isinstance(resp, Exception):
+            raise resp
+        if isinstance(resp, str):
+            return resp
+        return '{"clases": []}'
 
 
 @pytest.fixture(autouse=True)
@@ -273,3 +297,83 @@ def test_transcripcion_audio_fallback_secuencial():
         "gemini-3.6-flash",
         "gemini-3.5-flash-lite",
     ]
+
+
+# Caso Adicional: Análisis de imagen con fallback secuencial y retry
+def test_analisis_imagen_fallback_secuencial():
+    proveedor = FakeProveedorIa(
+        respuestas_imagen_por_modelo={
+            "gemini-3.6-flash": [
+                ProveedorIaRecuperableException("503 High Demand"),
+                ProveedorIaRecuperableException("503 High Demand (retry)"),
+            ],
+            "gemini-3.5-flash-lite": '{"clases": [{"nombre": "Factura", "referencia_semantica": "c1", "atributos": []}], "relaciones": []}',
+        }
+    )
+    coordinador = EstrategiaModelosGemini(proveedor, retry_backoff_ms=0)
+
+    resultado = coordinador.analizar_imagen_con_fallback(
+        contenido_imagen=b"dummy_image_bytes",
+        mime_type="image/png",
+        prompt_estructural="prompt",
+    )
+
+    assert "Factura" in resultado
+    assert proveedor.llamadas_imagen == [
+        "gemini-3.6-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-lite",
+    ]
+
+
+# Caso Adicional: Ambos modelos fallan en análisis de imagen (503) lanza ProveedorIaRecuperableException
+def test_analisis_imagen_ambos_modelos_503_lanza_recuperable():
+    proveedor = FakeProveedorIa(
+        respuestas_imagen_por_modelo={
+            "gemini-3.6-flash": [
+                ProveedorIaRecuperableException("503 High Demand"),
+                ProveedorIaRecuperableException("503 High Demand retry"),
+            ],
+            "gemini-3.5-flash-lite": [
+                ProveedorIaRecuperableException("503 High Demand fallback"),
+                ProveedorIaRecuperableException("503 High Demand fallback retry"),
+            ],
+        }
+    )
+    coordinador = EstrategiaModelosGemini(proveedor, retry_backoff_ms=0)
+
+    with pytest.raises(ProveedorIaRecuperableException) as exc_info:
+        coordinador.analizar_imagen_con_fallback(
+            contenido_imagen=b"dummy_image_bytes",
+            mime_type="image/png",
+            prompt_estructural="prompt",
+        )
+
+    assert "DRAWI no pudo procesar" in str(exc_info.value) or "503" in str(exc_info.value)
+    assert len(proveedor.llamadas_imagen) == 4
+
+
+# Caso Adicional: Error 400 no recuperable en análisis de imagen se propaga inmediatamente sin reintentos ni fallback
+def test_analisis_imagen_error_400_no_recuperable_inmediato():
+    breaker = _obtener_breaker("gemini-3.6-flash")
+    proveedor = FakeProveedorIa(
+        respuestas_imagen_por_modelo={
+            "gemini-3.6-flash": ProveedorIaNoRecuperableException("400 Bad Request: deadline too short"),
+            "gemini-3.5-flash-lite": '{"clases": []}',
+        }
+    )
+    coordinador = EstrategiaModelosGemini(proveedor, retry_backoff_ms=0)
+
+    with pytest.raises(ProveedorIaNoRecuperableException) as exc_info:
+        coordinador.analizar_imagen_con_fallback(
+            contenido_imagen=b"dummy_image_bytes",
+            mime_type="image/png",
+            prompt_estructural="prompt",
+        )
+
+    assert "400" in str(exc_info.value)
+    assert proveedor.llamadas_imagen == ["gemini-3.6-flash"]
+    assert breaker.consecutive_failures == 0
+    assert breaker.state == CircuitState.CLOSED
+
+
