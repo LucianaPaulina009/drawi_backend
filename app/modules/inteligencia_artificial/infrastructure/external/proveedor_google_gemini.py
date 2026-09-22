@@ -185,3 +185,69 @@ class ProveedorGoogleGemini(ProveedorIa):
             raise ProveedorIaRecuperableException(
                 f"Error inesperado con el modelo {modelo}: {str(e)}"
             ) from e
+
+    def analizar_diagrama_imagen(
+        self,
+        *,
+        modelo: str,
+        contenido_imagen: bytes,
+        mime_type: str,
+        prompt_estructural: str,
+    ) -> str:
+        cliente = self._obtener_cliente()
+        mime_base = mime_type.split(";")[0].strip().lower()
+        part_imagen = types.Part.from_bytes(data=contenido_imagen, mime_type=mime_base)
+        try:
+            config = types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json",
+            )
+            respuesta = cliente.models.generate_content(
+                model=modelo,
+                contents=[part_imagen, prompt_estructural],
+                config=config,
+            )
+            return (respuesta.text or "").strip()
+        except errors.APIError as e:
+            codigo = getattr(e, "code", None)
+            mensaje = getattr(e, "message", str(e))
+            logger.error(
+                "Error en análisis multimodal Gemini API (modelo=%s, status=%s): %s",
+                modelo,
+                codigo,
+                mensaje,
+            )
+            if (
+                codigo in (429, 500, 502, 503, 504, 404)
+                or "rate limit" in mensaje.lower()
+                or "quota" in mensaje.lower()
+                or "unavailable" in mensaje.lower()
+            ):
+                raise ProveedorIaRecuperableException(
+                    f"Error temporal del proveedor Gemini ({codigo}): {mensaje}"
+                ) from e
+            if codigo in (401, 403):
+                raise ProveedorIaNoRecuperableException(
+                    f"Error de autorización en Gemini: {mensaje}"
+                ) from e
+            raise ProveedorIaNoRecuperableException(
+                f"Error no recuperable de Gemini ({codigo}): {mensaje}"
+            ) from e
+        except (TimeoutError, errors.ClientError) as e:
+            logger.error(
+                "Timeout o error de cliente con Gemini al analizar imagen (modelo=%s): %s",
+                modelo,
+                str(e),
+            )
+            raise ProveedorIaRecuperableException(
+                f"Timeout o error de conexión con Gemini: {str(e)}"
+            ) from e
+        except Exception as e:
+            logger.error(
+                "Error inesperado al analizar imagen con Gemini (modelo=%s): %s",
+                modelo,
+                str(e),
+            )
+            raise ProveedorIaRecuperableException(
+                f"Error inesperado con el modelo {modelo}: {str(e)}"
+            ) from e

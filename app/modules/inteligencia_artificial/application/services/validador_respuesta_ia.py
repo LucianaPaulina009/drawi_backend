@@ -47,6 +47,8 @@ class AccionCrearRelacionSchema(BaseModel):
     conector_origen: str | None = None
     conector_destino: str | None = None
     nombre: str | None = None
+    nombre_fk: str | None = None
+    clase_fk_referencia: str | None = None
 
 
 class AccionActualizarClaseSchema(BaseModel):

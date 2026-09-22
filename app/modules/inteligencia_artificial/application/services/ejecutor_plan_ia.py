@@ -459,9 +459,27 @@ class EjecutorPlanIa:
                     if requiere_materializacion(rel_temp):
                         origen_muchos = _maximo(rel_temp.cardinalidad_origen) is None or _maximo(rel_temp.cardinalidad_origen) > 1
                         destino_muchos = _maximo(rel_temp.cardinalidad_destino) is None or _maximo(rel_temp.cardinalidad_destino) > 1
-                        if rel_temp.tipo_relacion in {"herencia", "realizacion", "dependencia"}:
+
+                        if accion.clase_fk_referencia:
+                            res_fk = ResolvedorReferenciasIa.resolver_clase(
+                                accion.clase_fk_referencia, clases_actuales, mapa_referencias
+                            )
+                            if res_fk.exito:
+                                clase_fk = res_fk.id
+                                clase_ref = (
+                                    id_origen
+                                    if (clase_fk == id_destino and id_origen != id_destino)
+                                    else (id_destino if id_origen != id_destino else id_origen)
+                                )
+                            else:
+                                clase_fk = id_origen if origen_muchos else id_destino
+                                clase_ref = id_destino if origen_muchos else id_origen
+                        elif rel_temp.tipo_relacion in {"herencia", "realizacion", "dependencia"}:
                             clase_fk = id_origen
                             clase_ref = id_destino
+                        elif id_origen == id_destino:
+                            clase_fk = id_origen
+                            clase_ref = id_origen
                         elif origen_muchos != destino_muchos:
                             clase_fk = id_origen if origen_muchos else id_destino
                             clase_ref = id_destino if origen_muchos else id_origen
@@ -473,9 +491,16 @@ class EjecutorPlanIa:
                         if pk_attr:
                             clase_ref_obj = self.clase_repo.obtener_por_id(clase_ref)
                             clase_ref_name = (clase_ref_obj.nombre if clase_ref_obj else "origen").lower()
-                            nombre_fk = f"id_{clase_ref_name}"
+
+                            if accion.nombre_fk:
+                                nombre_fk = accion.nombre_fk
+                            elif id_origen == id_destino:
+                                nombre_fk = f"id_{clase_ref_name}_padre"
+                            else:
+                                nombre_fk = f"id_{clase_ref_name}"
+
                             attrs_en_fk = self.atributo_repo.listar_por_clase(clase_fk)
-                            attr_existente = next((a for a in attrs_en_fk if a.nombre.lower() == nombre_fk), None)
+                            attr_existente = next((a for a in attrs_en_fk if a.nombre.lower() == nombre_fk.lower()), None)
                             if attr_existente:
                                 materializaciones.append(
                                     MaterializacionFKCommand(

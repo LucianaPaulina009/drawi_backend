@@ -49,3 +49,19 @@ class ProveedorIa(ABC):
         """
         raise NotImplementedError("transcribir_audio no está implementado en este proveedor.")
 
+    def analizar_diagrama_imagen(
+        self,
+        *,
+        modelo: str,
+        contenido_imagen: bytes,
+        mime_type: str,
+        prompt_estructural: str,
+    ) -> str:
+        """
+        Analiza una imagen de diagrama UML y produce una estructura JSON siguiendo el prompt dado.
+
+        Lanza ProveedorIaRecuperableException en fallos temporales (timeout, rate limit, servicio no disponible).
+        Lanza ProveedorIaNoRecuperableException en fallos permanentes.
+        """
+        raise NotImplementedError("analizar_diagrama_imagen no está implementado en este proveedor.")
+

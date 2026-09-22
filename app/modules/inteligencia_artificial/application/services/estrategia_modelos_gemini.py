@@ -298,3 +298,74 @@ class EstrategiaModelosGemini:
         raise ultimo_error or ProveedorIaRecuperableException(
             "DRAWI no pudo procesar la solicitud en este momento. Intenta nuevamente."
         )
+
+    def analizar_imagen_con_fallback(
+        self,
+        *,
+        contenido_imagen: bytes,
+        mime_type: str,
+        prompt_estructural: str,
+    ) -> str:
+        ultimo_error: ProveedorIaRecuperableException | None = None
+
+        for modelo in self.modelos:
+            estado_breaker, esta_abierto = self._evaluar_estado_breaker(modelo)
+            if esta_abierto:
+                logger.warning(
+                    "Circuit breaker OPEN para modelo %s en análisis de imagen. Omitiendo directamente hacia fallback.",
+                    modelo,
+                )
+                continue
+
+            es_half_open = estado_breaker == CircuitState.HALF_OPEN
+
+            # Intento 1
+            try:
+                json_str = self.proveedor.analizar_diagrama_imagen(
+                    modelo=modelo,
+                    contenido_imagen=contenido_imagen,
+                    mime_type=mime_type,
+                    prompt_estructural=prompt_estructural,
+                )
+                self._registrar_exito(modelo)
+                return json_str
+            except ProveedorIaRecuperableException as err:
+                ultimo_error = err
+                logger.warning(
+                    "Fallo recuperable en análisis de imagen (intento 1) con modelo %s: %s",
+                    modelo,
+                    str(err),
+                )
+                if es_half_open:
+                    self._registrar_fallo_recuperable(modelo, en_half_open=True)
+                    continue
+
+                if self.retry_backoff_ms > 0:
+                    time.sleep(self.retry_backoff_ms / 1000.0)
+
+                try:
+                    json_str = self.proveedor.analizar_diagrama_imagen(
+                        modelo=modelo,
+                        contenido_imagen=contenido_imagen,
+                        mime_type=mime_type,
+                        prompt_estructural=prompt_estructural,
+                    )
+                    self._registrar_exito(modelo)
+                    return json_str
+                except ProveedorIaRecuperableException as err_retry:
+                    ultimo_error = err_retry
+                    logger.warning(
+                        "Fallo recuperable en reintento de análisis de imagen con modelo %s: %s.",
+                        modelo,
+                        str(err_retry),
+                    )
+                    self._registrar_fallo_recuperable(modelo, en_half_open=False)
+                    continue
+                except (ProveedorIaNoRecuperableException, Exception):
+                    raise
+            except (ProveedorIaNoRecuperableException, Exception):
+                raise
+
+        raise ultimo_error or ProveedorIaRecuperableException(
+            "DRAWI no pudo procesar el análisis de imagen en este momento. Intenta nuevamente."
+        )

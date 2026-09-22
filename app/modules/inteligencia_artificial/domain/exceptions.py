@@ -99,3 +99,33 @@ class ProveedorTranscripcionException(BadGatewayException):
 class ProveedorTranscripcionRecuperableException(ServiceUnavailableException):
     code = "ERROR_RECUPERABLE_PROVEEDOR_TRANSCRIPCION"
     message = "El servicio de transcripción no está disponible temporalmente o excedió el tiempo de espera."
+
+
+class ImagenVaciaException(ValidationException):
+    code = "IMAGEN_VACIA"
+    message = "El archivo de imagen está vacío."
+
+
+class ImagenInvalidaException(ValidationException):
+    code = "IMAGEN_INVALIDA"
+    message = "El archivo de imagen no es válido o está corrupto."
+
+
+class FormatoImagenNoSoportadoException(UnsupportedMediaTypeException):
+    code = "FORMATO_IMAGEN_NO_SOPORTADO"
+    message = "El formato de imagen no es compatible (se requiere PNG, JPEG o WEBP)."
+
+
+class TamanoImagenExcedidoException(PayloadTooLargeException):
+    code = "TAMANO_IMAGEN_EXCEDIDO"
+    message = "El tamaño de la imagen excede el límite máximo permitido de 10 MiB."
+
+
+class ProveedorAlmacenamientoImagenException(BadGatewayException):
+    code = "ERROR_PROVEEDOR_ALMACENAMIENTO_IMAGEN"
+    message = "Error al procesar la imagen con el proveedor de almacenamiento temporal."
+
+
+class ProveedorAlmacenamientoImagenRecuperableException(ServiceUnavailableException):
+    code = "ERROR_RECUPERABLE_PROVEEDOR_ALMACENAMIENTO_IMAGEN"
+    message = "El servicio de almacenamiento temporal no está disponible o excedió el tiempo de espera."

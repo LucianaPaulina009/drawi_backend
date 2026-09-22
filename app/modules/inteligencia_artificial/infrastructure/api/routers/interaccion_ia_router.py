@@ -41,6 +41,9 @@ from app.modules.gestion_colaboradores.infrastructure.persistence.repositories.s
 from app.modules.gestion_proyectos.infrastructure.persistence.repositories.sqlmodel_proyecto_repository import (
     SQLModelProyectoRepository,
 )
+from app.modules.inteligencia_artificial.application.ports.providers.almacenamiento_imagen_temporal import (
+    AlmacenamientoImagenTemporal,
+)
 from app.modules.inteligencia_artificial.application.ports.providers.proveedor_ia import (
     ProveedorIa,
 )
@@ -59,6 +62,10 @@ from app.modules.inteligencia_artificial.application.services.ejecutor_plan_ia i
 )
 from app.modules.inteligencia_artificial.application.services.estrategia_modelos_gemini import (
     EstrategiaModelosGemini,
+)
+from app.modules.inteligencia_artificial.application.use_cases.procesar_imagen_diagrama_ia import (
+    ProcesarImagenDiagramaIaCommand,
+    ProcesarImagenDiagramaIaUseCase,
 )
 from app.modules.inteligencia_artificial.application.use_cases.procesar_mensaje_ia import (
     ProcesarMensajeIaCommand,
@@ -93,6 +100,7 @@ router = APIRouter(prefix="/diagramas", tags=["Inteligencia Artificial"])
 
 _proveedor_ia_singleton: ProveedorIa | None = None
 _proveedor_transcripcion_singleton: ProveedorTranscripcion | None = None
+_almacenamiento_imagen_singleton: AlmacenamientoImagenTemporal | None = None
 
 
 def get_proveedor_ia() -> ProveedorIa:
@@ -121,6 +129,27 @@ def set_proveedor_transcripcion_override(
 ) -> None:
     global _proveedor_transcripcion_singleton
     _proveedor_transcripcion_singleton = override
+
+
+def get_almacenamiento_imagen() -> AlmacenamientoImagenTemporal | None:
+    global _almacenamiento_imagen_singleton
+    if _almacenamiento_imagen_singleton is None:
+        try:
+            from app.modules.inteligencia_artificial.infrastructure.external.almacenamiento_imagen_cloudinary import (
+                AlmacenamientoImagenCloudinary,
+            )
+
+            _almacenamiento_imagen_singleton = AlmacenamientoImagenCloudinary()
+        except Exception:
+            _almacenamiento_imagen_singleton = None
+    return _almacenamiento_imagen_singleton
+
+
+def set_almacenamiento_imagen_override(
+    override: AlmacenamientoImagenTemporal | None,
+) -> None:
+    global _almacenamiento_imagen_singleton
+    _almacenamiento_imagen_singleton = override
 
 
 def _a_read(entidad: InteraccionIa) -> InteraccionIaRead:
@@ -514,3 +543,220 @@ async def transcribir_audio_ia(
         texto=resultado.texto,
         idioma=resultado.idioma,
     )
+
+
+def _crear_procesar_imagen_ia_use_case(
+    session: DBSession,
+    uow: UoWDep,
+) -> ProcesarImagenDiagramaIaUseCase:
+    proyecto_repo = SQLModelProyectoRepository(session)
+    diagrama_repo = SQLModelDiagramaRepository(session)
+    interaccion_repo = SQLModelInteraccionIaRepository(session)
+    clase_repo = SQLModelClaseRepository(session)
+    atributo_repo = SQLModelAtributoRepository(session)
+    relacion_repo = SQLModelRelacionRepository(session)
+    referencia_fk_repo = SQLModelReferenciaFKRepository(session)
+    estructura_nm_repo = SQLModelEstructuraRelacionNmRepository(session)
+    colaborador_repo = SQLModelColaboradorProyectoRepository(session)
+
+    proveedor = get_proveedor_ia()
+    coordinador_gemini = EstrategiaModelosGemini(proveedor)
+    almacenamiento = get_almacenamiento_imagen()
+
+    crear_clase_use_case = CrearClaseUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    atributo_use_case = AtributoUseCase(
+        p=proyecto_repo,
+        d=diagrama_repo,
+        c=clase_repo,
+        a=atributo_repo,
+        u=uow,
+        col=colaborador_repo,
+        rfk=referencia_fk_repo,
+        relacion_repository=relacion_repo,
+        estructura_repository=estructura_nm_repo,
+    )
+
+    crear_relacion_use_case = CrearRelacionUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    from app.modules.diagramas.application.services.idempotencia_diagrama import (
+        IdempotenciaDiagramaService,
+    )
+    from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_operacion_diagrama_repository import (
+        SQLModelOperacionDiagramaRepository,
+    )
+    from app.modules.diagramas.application.use_cases.clase.actualizar_clase import (
+        ActualizarClaseUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.clase.eliminar_clase import (
+        EliminarClaseUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.relacion.actualizar_relacion import (
+        ActualizarRelacionUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.relacion.eliminar_relacion import (
+        EliminarRelacionUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.estructura_relacion_nm.crear_estructura_relacion_nm import (
+        CrearEstructuraRelacionNmUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.estructura_relacion_nm.eliminar_estructura_relacion_nm import (
+        EliminarEstructuraRelacionNmUseCase,
+    )
+
+    idempotencia = IdempotenciaDiagramaService(SQLModelOperacionDiagramaRepository(session))
+
+    crear_estructura_nm_use_case = CrearEstructuraRelacionNmUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        estructura_repository=estructura_nm_repo,
+        idempotencia=idempotencia,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    actualizar_clase_use_case = ActualizarClaseUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    eliminar_clase_use_case = EliminarClaseUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        estructura_repository=estructura_nm_repo,
+    )
+
+    actualizar_relacion_use_case = ActualizarRelacionUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        relacion_repository=relacion_repo,
+        atributo_repository=atributo_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    eliminar_relacion_use_case = EliminarRelacionUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+        atributo_repository=atributo_repo,
+        clase_repository=clase_repo,
+        estructura_repository=estructura_nm_repo,
+    )
+
+    eliminar_estructura_nm_use_case = EliminarEstructuraRelacionNmUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        estructura_repository=estructura_nm_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    ejecutor_plan = EjecutorPlanIa(
+        crear_clase_use_case=crear_clase_use_case,
+        atributo_use_case=atributo_use_case,
+        crear_relacion_use_case=crear_relacion_use_case,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        actualizar_clase_use_case=actualizar_clase_use_case,
+        eliminar_clase_use_case=eliminar_clase_use_case,
+        actualizar_relacion_use_case=actualizar_relacion_use_case,
+        eliminar_relacion_use_case=eliminar_relacion_use_case,
+        crear_estructura_nm_use_case=crear_estructura_nm_use_case,
+        eliminar_estructura_nm_use_case=eliminar_estructura_nm_use_case,
+        estructura_nm_repository=estructura_nm_repo,
+    )
+
+    return ProcesarImagenDiagramaIaUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        interaccion_repository=interaccion_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        relacion_repository=relacion_repo,
+        coordinador_gemini=coordinador_gemini,
+        ejecutor_plan=ejecutor_plan,
+        uow=uow,
+        almacenamiento_temporal=almacenamiento,
+        colaborador_repository=colaborador_repo,
+    )
+
+
+@router.post(
+    "/{id_diagrama}/interacciones-ia/imagen",
+    response_model=InteraccionIaRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def enviar_imagen_ia(
+    id_diagrama: UUID,
+    usuario: CurrentUser,
+    session: DBSession,
+    uow: UoWDep,
+    imagen: UploadFile = File(..., description="Archivo de imagen UML temporal seleccionado por el usuario."),
+    clave_idempotencia: UUID = Form(..., description="Clave única de idempotencia."),
+) -> InteraccionIaRead:
+    contenido_imagen = await imagen.read()
+    if not contenido_imagen:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo de imagen proporcionado está vacío.",
+        )
+
+    mime_type = imagen.content_type or "image/png"
+    nombre_archivo = imagen.filename or "diagrama.png"
+
+    use_case = _crear_procesar_imagen_ia_use_case(session, uow)
+    interaccion = use_case.execute(
+        ProcesarImagenDiagramaIaCommand(
+            usuario_id=usuario.user_id,
+            diagrama_id=id_diagrama,
+            contenido_imagen=contenido_imagen,
+            mime_type=mime_type,
+            nombre_archivo=nombre_archivo,
+            clave_idempotencia=clave_idempotencia,
+        )
+    )
+
+    return _a_read(interaccion)
+

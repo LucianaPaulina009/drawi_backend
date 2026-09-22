@@ -106,6 +106,18 @@ class Settings(BaseSettings):
         default=15.0, gt=0
     )
 
+    # ── Cloudinary / Reconocimiento de Imagen IA ─────────────────────────────
+    CLOUDINARY_CLOUD_NAME: str = Field(default="")
+    CLOUDINARY_API_KEY: str = Field(default="")
+    CLOUDINARY_API_SECRET: str = Field(default="")
+    CLOUDINARY_URL: str = Field(default="")
+    IA_IMAGEN_MAX_SIZE_BYTES: int = Field(
+        default=10 * 1024 * 1024, gt=0
+    )
+    IA_IMAGEN_FOLDER_PREFIX: str = Field(
+        default="drawi/temp/importaciones-uml"
+    )
+
     # ── CORS ──────────────────────────────────────────────────────────────────
     CORS_ORIGINS: list[str] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://localhost:5173"]
