@@ -1,3 +1,4 @@
+import logging
 from uuid import uuid4
 import pytest
 from sqlmodel import Session
@@ -44,6 +45,7 @@ from app.modules.inteligencia_artificial.application.services.constructor_contex
 from app.modules.inteligencia_artificial.application.services.ejecutor_plan_ia import EjecutorPlanIa
 from app.modules.inteligencia_artificial.application.services.estrategia_modelos_gemini import (
     EstrategiaModelosGemini,
+    reset_circuit_breakers,
 )
 from app.modules.inteligencia_artificial.application.use_cases.procesar_mensaje_ia import (
     ProcesarMensajeIaCommand,
@@ -52,6 +54,7 @@ from app.modules.inteligencia_artificial.application.use_cases.procesar_mensaje_
 from app.modules.inteligencia_artificial.domain.exceptions import (
     ClaveIdempotenciaConflictoException,
     EntradaUsuarioInvalidaException,
+    ProveedorIaRecuperableException,
 )
 from app.modules.inteligencia_artificial.domain.value_objects.estado_interaccion_ia import EstadoInteraccionIa
 from app.modules.inteligencia_artificial.infrastructure.persistence.repositories.sqlmodel_interaccion_ia_repository import (
@@ -61,21 +64,45 @@ from app.shared.infrastructure.db.better_auth import BetterAuthUser
 
 
 class FakeProveedor(ProveedorIa):
-    def __init__(self, respuesta_json: str = '{"respuesta_usuario": "Hola!", "acciones": []}') -> None:
+    def __init__(
+        self,
+        respuesta_json: str = '{"respuesta_usuario": "Hola!", "acciones": []}',
+        respuestas_por_modelo: dict[str, ResultadoProveedorIa | Exception] | None = None,
+    ) -> None:
         self.respuesta_json = respuesta_json
+        self.respuestas_por_modelo = respuestas_por_modelo or {}
         self.invocaciones = 0
+        self.modelos_invocados: list[str] = []
 
     def generar_respuesta(self, *, modelo: str, prompt_sistema: str, mensaje_usuario: str, temperatura: float = 0.2) -> ResultadoProveedorIa:
         self.invocaciones += 1
+        self.modelos_invocados.append(modelo)
+        if modelo in self.respuestas_por_modelo:
+            resp = self.respuestas_por_modelo[modelo]
+            if isinstance(resp, Exception):
+                raise resp
+            return resp
         return ResultadoProveedorIa(texto_respuesta=self.respuesta_json, modelo=modelo)
 
 
-def _crear_entorno(session: Session, respuesta_json: str | None = None):
-    usuario = BetterAuthUser(id="user-proc-1", name="Proc", email="proc@drawi.com", email_verified=True)
+@pytest.fixture(autouse=True)
+def limpiar_breakers():
+    reset_circuit_breakers()
+    yield
+    reset_circuit_breakers()
+
+
+def _crear_entorno(
+    session: Session,
+    respuesta_json: str | None = None,
+    respuestas_por_modelo: dict[str, ResultadoProveedorIa | Exception] | None = None,
+):
+    uid = f"user-proc-{uuid4().hex[:6]}"
+    usuario = BetterAuthUser(id=uid, name="Proc", email=f"{uid}@drawi.com", email_verified=True)
     session.add(usuario)
     session.commit()
 
-    proyecto = ProyectoModel(propietario_id=usuario.id, nombre="Proy Proc", color="azul", icono="caja", slug="proy-proc")
+    proyecto = ProyectoModel(propietario_id=usuario.id, nombre="Proy Proc", color="azul", icono="caja", slug=f"proy-proc-{uuid4().hex[:6]}")
     session.add(proyecto)
     session.commit()
 
@@ -97,8 +124,11 @@ def _crear_entorno(session: Session, respuesta_json: str | None = None):
     q_diag = ObtenerDiagramaCompletoQueryHandler(p_repo, d_repo, c_repo, a_repo, col_repo, r_repo, rfk_repo, nm_repo)
     constructor = ConstructorContextoDiagrama(q_diag, i_repo)
 
-    fake_prov = FakeProveedor(respuesta_json=respuesta_json or '{"respuesta_usuario": "Respuesta simulada", "acciones": []}')
-    coordinador = EstrategiaModelosGemini(fake_prov)
+    fake_prov = FakeProveedor(
+        respuesta_json=respuesta_json or '{"respuesta_usuario": "Respuesta simulada", "acciones": []}',
+        respuestas_por_modelo=respuestas_por_modelo,
+    )
+    coordinador = EstrategiaModelosGemini(fake_prov, retry_backoff_ms=0)
 
     from app.modules.diagramas.application.services.idempotencia_diagrama import IdempotenciaDiagramaService
     from app.modules.diagramas.application.use_cases.estructura_relacion_nm.crear_estructura_relacion_nm import (
@@ -177,7 +207,7 @@ def _crear_entorno(session: Session, respuesta_json: str | None = None):
         colaborador_repository=col_repo,
     )
 
-    return use_case, usuario, diagrama, fake_prov, c_repo, a_repo, r_repo, nm_repo
+    return use_case, usuario, diagrama, fake_prov, c_repo, a_repo, r_repo, nm_repo, i_repo
 
 
 def test_procesar_mensaje_conversacion_exitoso_y_persistido(session: Session):
@@ -195,41 +225,100 @@ def test_procesar_mensaje_conversacion_exitoso_y_persistido(session: Session):
 
     assert interaccion.estado == EstadoInteraccionIa.COMPLETADO
     assert interaccion.respuesta_ia == "Respuesta simulada"
-    assert interaccion.modelo_utilizado == "gemini-3.7-flash"
+    assert interaccion.modelo_utilizado == "gemini-3.6-flash"
     assert fake_prov.invocaciones == 1
 
-    # Repetición idempotente con el mismo texto no vuelve a llamar al proveedor
-    repetida = use_case.execute(
+
+# Caso 14: Voz (022) y texto comparten el mismo pipeline, breaker y fallback
+def test_caso_14_voz_y_texto_comparten_pipeline_y_estrategia(session: Session):
+    use_case, usuario, diagrama, fake_prov, *_ = _crear_entorno(session)
+
+    # Interacción de texto
+    clave_texto = uuid4()
+    interaccion_texto = use_case.execute(
         ProcesarMensajeIaCommand(
             usuario_id=usuario.id,
             diagrama_id=diagrama.id,
-            texto="¿Cómo diseño una relación 1 a N?",
-            clave_idempotencia=clave,
+            texto="Hola DRAWI desde texto",
+            clave_idempotencia=clave_texto,
+            tipo_interaccion="texto",
         )
     )
-    assert repetida.id == interaccion.id
-    assert fake_prov.invocaciones == 1
+    assert interaccion_texto.tipo_interaccion.value == "texto" or str(interaccion_texto.tipo_interaccion) == "texto"
+    assert interaccion_texto.modelo_utilizado == "gemini-3.6-flash"
+
+    # Interacción de voz (procedente de audio transcrito)
+    clave_voz = uuid4()
+    interaccion_voz = use_case.execute(
+        ProcesarMensajeIaCommand(
+            usuario_id=usuario.id,
+            diagrama_id=diagrama.id,
+            texto="Crea la tabla Factura desde voz",
+            clave_idempotencia=clave_voz,
+            tipo_interaccion="audio",
+        )
+    )
+    assert interaccion_voz.tipo_interaccion.value == "audio" or str(interaccion_voz.tipo_interaccion) == "audio"
+    assert interaccion_voz.modelo_utilizado == "gemini-3.6-flash"
+    assert fake_prov.invocaciones == 2
 
 
-def test_procesar_mensaje_misma_clave_distinto_texto_lanza_conflicto(session: Session):
+# Caso 15: Telemetría y logs estructurados registran métricas completas
+def test_caso_15_metricas_estructuradas_y_telemetria(session: Session, caplog: pytest.LogCaptureFixture):
     use_case, usuario, diagrama, _, *_ = _crear_entorno(session)
 
-    clave = uuid4()
-    use_case.execute(
-        ProcesarMensajeIaCommand(
-            usuario_id=usuario.id,
-            diagrama_id=diagrama.id,
-            texto="Primer texto",
-            clave_idempotencia=clave,
+    with caplog.at_level(logging.INFO):
+        use_case.execute(
+            ProcesarMensajeIaCommand(
+                usuario_id=usuario.id,
+                diagrama_id=diagrama.id,
+                texto="Crea una clase Proveedor",
+                clave_idempotencia=uuid4(),
+            )
         )
+
+    # Verificar log estructurado
+    registros = [r.message for r in caplog.records if "[DRAWI IA]" in r.message]
+    assert len(registros) >= 1
+    log_linea = registros[0]
+    assert "contextLevel=" in log_linea
+    assert "contextMs=" in log_linea
+    assert "model=gemini-3.6-flash" in log_linea
+    assert "attempts=1" in log_linea
+    assert "fallback=False" in log_linea
+    assert "breakerOpen=False" in log_linea
+    assert "geminiMs=" in log_linea
+    assert "totalMs=" in log_linea
+
+
+# Caso 16: Idempotencia respetada en reintentos, fallback y errores
+def test_caso_16_idempotencia_preservada(session: Session):
+    use_case, usuario, diagrama, fake_prov, *_ = _crear_entorno(session)
+
+    clave = uuid4()
+    cmd = ProcesarMensajeIaCommand(
+        usuario_id=usuario.id,
+        diagrama_id=diagrama.id,
+        texto="¿Cómo funciona la clave primaria?",
+        clave_idempotencia=clave,
     )
 
+    primera = use_case.execute(cmd)
+    assert fake_prov.invocaciones == 1
+
+    # Segunda invocación con la misma clave e idéntico texto
+    segunda = use_case.execute(cmd)
+    assert segunda.id == primera.id
+    # No volvió a llamar al proveedor de IA
+    assert fake_prov.invocaciones == 1
+
+    # Invocación con la misma clave pero texto modificado -> conflicto 409
     with pytest.raises(ClaveIdempotenciaConflictoException):
         use_case.execute(
             ProcesarMensajeIaCommand(
                 usuario_id=usuario.id,
                 diagrama_id=diagrama.id,
-                texto="Texto completamente distinto",
+                texto="Texto completamente distinto con misma clave",
                 clave_idempotencia=clave,
             )
         )
@@ -247,6 +336,37 @@ def test_procesar_mensaje_texto_vacio_falla_validacion(session: Session):
                 clave_idempotencia=uuid4(),
             )
         )
+
+
+def test_procesar_mensaje_fallo_ambos_modelos_deja_error_sin_mutaciones(session: Session):
+    respuestas_fallidas = {
+        "gemini-3.6-flash": ProveedorIaRecuperableException("Timeout 504"),
+        "gemini-3.5-flash-lite": ProveedorIaRecuperableException("503 Overloaded"),
+    }
+    use_case, usuario, diagrama, _, c_repo, _, _, _, i_repo = _crear_entorno(
+        session, respuestas_por_modelo=respuestas_fallidas
+    )
+
+    clave = uuid4()
+    with pytest.raises(ProveedorIaRecuperableException):
+        use_case.execute(
+            ProcesarMensajeIaCommand(
+                usuario_id=usuario.id,
+                diagrama_id=diagrama.id,
+                texto="Crea una clase NoDeberiaCrearse",
+                clave_idempotencia=clave,
+            )
+        )
+
+    # Verificar 0 mutaciones en base de datos
+    clases = c_repo.listar_por_diagrama(diagrama.id)
+    assert len(clases) == 0
+
+    # Verificar interacción registrada con mensaje amigable
+    interaccion = i_repo.obtener_por_idempotencia(usuario.id, diagrama.id, clave)
+    assert interaccion is not None
+    assert interaccion.estado == EstadoInteraccionIa.ERROR
+    assert "DRAWI no pudo procesar la solicitud en este momento" in interaccion.respuesta_ia
 
 
 def test_procesar_mensaje_ia_crea_relacion_nm_con_atributo_en_intermedia(session: Session):
@@ -273,7 +393,7 @@ def test_procesar_mensaje_ia_crea_relacion_nm_con_atributo_en_intermedia(session
       ]
     }"""
 
-    use_case, usuario, diagrama, _, c_repo, a_repo, r_repo, nm_repo = _crear_entorno(
+    use_case, usuario, diagrama, _, c_repo, a_repo, r_repo, nm_repo, _ = _crear_entorno(
         session, respuesta_json=respuesta_gemini
     )
 
@@ -322,4 +442,3 @@ def test_procesar_mensaje_ia_crea_relacion_nm_con_atributo_en_intermedia(session
 
     relaciones = r_repo.listar_por_diagrama(diagrama.id)
     assert len(relaciones) == 2
-

@@ -80,6 +80,31 @@ class Settings(BaseSettings):
     GEMINI_TIMEOUT_SECONDS: float = Field(
         default=30.0, gt=0
     )
+    IA_GEMINI_PRIMARY_MODEL: str = Field(
+        default="gemini-3.6-flash"
+    )
+    IA_GEMINI_FALLBACK_MODEL: str = Field(
+        default="gemini-3.5-flash-lite"
+    )
+    IA_GEMINI_TIMEOUT_SECONDS: float = Field(
+        default=4.0, gt=0
+    )
+    IA_GEMINI_RETRY_BACKOFF_MS: int = Field(
+        default=300, ge=0
+    )
+    IA_GEMINI_BREAKER_FAILURES: int = Field(
+        default=2, ge=1
+    )
+    IA_GEMINI_BREAKER_SECONDS: int = Field(
+        default=60, ge=1
+    )
+    IA_HISTORIAL_LIMITE: int = Field(
+        default=5, ge=1, le=20
+    )
+    IA_TRANSCRIPCION_IDIOMA: str = Field(default="es")
+    IA_TRANSCRIPCION_TIMEOUT_SECONDS: float = Field(
+        default=15.0, gt=0
+    )
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     CORS_ORIGINS: list[str] = Field(

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Final, Sequence
+import time
+from dataclasses import dataclass
+from enum import Enum
+from typing import Callable, Final, Sequence, TypeVar
 
+from app.core.config import settings
 from app.modules.inteligencia_artificial.application.ports.providers.proveedor_ia import (
     ProveedorIa,
     ResultadoProveedorIa,
@@ -14,28 +18,117 @@ from app.modules.inteligencia_artificial.domain.exceptions import (
 
 logger = logging.getLogger(__name__)
 
+# Estrategia simplificada: únicamente 2 modelos
 MODELOS_GEMINI_ORDENADOS: Final[tuple[str, ...]] = (
-    "gemini-3.7-flash",
     "gemini-3.6-flash",
-    "gemini-3.5-flash",
     "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
-    "gemini-3-flash-preview",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
 )
 
 
+class CircuitState(str, Enum):
+    CLOSED = "CLOSED"
+    OPEN = "OPEN"
+    HALF_OPEN = "HALF_OPEN"
+
+
+@dataclass
+class ModelCircuitBreaker:
+    state: CircuitState = CircuitState.CLOSED
+    consecutive_failures: int = 0
+    last_failure_time: float = 0.0
+
+
+# Registro en memoria por modelo (compartido en el proceso)
+_CIRCUIT_BREAKERS: dict[str, ModelCircuitBreaker] = {}
+
+T = TypeVar("T")
+
+
+def _obtener_breaker(modelo: str) -> ModelCircuitBreaker:
+    if modelo not in _CIRCUIT_BREAKERS:
+        _CIRCUIT_BREAKERS[modelo] = ModelCircuitBreaker()
+    return _CIRCUIT_BREAKERS[modelo]
+
+
+def reset_circuit_breakers() -> None:
+    """Limpia el estado de todos los circuit breakers (útil en tests)."""
+    _CIRCUIT_BREAKERS.clear()
+
+
 class EstrategiaModelosGemini:
-    """Coordinador de fallback secuencial entre modelos de Google Gemini."""
+    """Coordinador de resiliencia con Circuit Breaker, reintento técnico y fallback entre modelos Gemini."""
 
     def __init__(
         self,
         proveedor: ProveedorIa,
-        modelos: Sequence[str] = MODELOS_GEMINI_ORDENADOS,
+        modelos: Sequence[str] | None = None,
+        failures_threshold: int | None = None,
+        breaker_cooldown_seconds: float | None = None,
+        retry_backoff_ms: int | None = None,
     ) -> None:
         self.proveedor = proveedor
-        self.modelos = tuple(modelos)
+        self.modelos = tuple(
+            modelos
+            if modelos is not None
+            else (settings.IA_GEMINI_PRIMARY_MODEL, settings.IA_GEMINI_FALLBACK_MODEL)
+        )
+        self.failures_threshold = (
+            failures_threshold
+            if failures_threshold is not None
+            else settings.IA_GEMINI_BREAKER_FAILURES
+        )
+        self.breaker_cooldown_seconds = (
+            breaker_cooldown_seconds
+            if breaker_cooldown_seconds is not None
+            else float(settings.IA_GEMINI_BREAKER_SECONDS)
+        )
+        self.retry_backoff_ms = (
+            retry_backoff_ms
+            if retry_backoff_ms is not None
+            else settings.IA_GEMINI_RETRY_BACKOFF_MS
+        )
+
+    def _evaluar_estado_breaker(self, modelo: str) -> tuple[CircuitState, bool]:
+        """Devuelve el estado actual del breaker y si está abierto bloqueando peticiones."""
+        breaker = _obtener_breaker(modelo)
+        ahora = time.monotonic()
+
+        if breaker.state == CircuitState.OPEN:
+            if ahora - breaker.last_failure_time >= self.breaker_cooldown_seconds:
+                breaker.state = CircuitState.HALF_OPEN
+                logger.info(
+                    "Circuit Breaker para modelo %s pasó a HALF_OPEN tras periodo de enfriamiento.",
+                    modelo,
+                )
+                return CircuitState.HALF_OPEN, False
+            return CircuitState.OPEN, True
+
+        return breaker.state, False
+
+    def _registrar_exito(self, modelo: str) -> None:
+        breaker = _obtener_breaker(modelo)
+        breaker.state = CircuitState.CLOSED
+        breaker.consecutive_failures = 0
+
+    def _registrar_fallo_recuperable(self, modelo: str, en_half_open: bool = False) -> None:
+        breaker = _obtener_breaker(modelo)
+        breaker.last_failure_time = time.monotonic()
+        if en_half_open:
+            breaker.state = CircuitState.OPEN
+            logger.warning(
+                "Prueba en HALF_OPEN para modelo %s falló. Circuito devuelto a OPEN.",
+                modelo,
+            )
+            return
+
+        breaker.consecutive_failures += 1
+        if breaker.consecutive_failures >= self.failures_threshold:
+            breaker.state = CircuitState.OPEN
+            logger.warning(
+                "Circuit Breaker ABIERTO para modelo %s tras %d fallos consecutivos.",
+                modelo,
+                breaker.consecutive_failures,
+            )
 
     def ejecutar_con_fallback(
         self,
@@ -45,8 +138,26 @@ class EstrategiaModelosGemini:
         temperatura: float = 0.2,
     ) -> ResultadoProveedorIa:
         ultimo_error: ProveedorIaRecuperableException | None = None
+        alguna_vez_breaker_abierto = False
+        inicio_total = time.monotonic()
+        total_intentos = 0
 
-        for modelo in self.modelos:
+        for indice_modelo, modelo in enumerate(self.modelos):
+            estado_breaker, esta_abierto = self._evaluar_estado_breaker(modelo)
+            if esta_abierto:
+                alguna_vez_breaker_abierto = True
+                logger.warning(
+                    "Circuit breaker OPEN para modelo %s. Omitiendo directamente hacia fallback.",
+                    modelo,
+                )
+                continue
+
+            es_half_open = estado_breaker == CircuitState.HALF_OPEN
+            intentos_modelo = 0
+
+            # Intento 1
+            total_intentos += 1
+            intentos_modelo += 1
             try:
                 resultado = self.proveedor.generar_respuesta(
                     modelo=modelo,
@@ -54,19 +165,136 @@ class EstrategiaModelosGemini:
                     mensaje_usuario=mensaje_usuario,
                     temperatura=temperatura,
                 )
-                return resultado
+                duracion_ms = (time.monotonic() - inicio_total) * 1000.0
+                self._registrar_exito(modelo)
+                return ResultadoProveedorIa(
+                    texto_respuesta=resultado.texto_respuesta,
+                    modelo=modelo,
+                    intentos=total_intentos,
+                    fallback_utilizado=(indice_modelo > 0),
+                    breaker_abierto=alguna_vez_breaker_abierto,
+                    duracion_ms=duracion_ms,
+                )
             except ProveedorIaRecuperableException as err:
+                ultimo_error = err
                 logger.warning(
-                    "Error recuperable en modelo %s: %s. Intentando siguiente modelo en la estrategia.",
+                    "Fallo recuperable en intento 1 de modelo %s: %s",
                     modelo,
                     str(err),
                 )
-                ultimo_error = err
-                continue
+                if es_half_open:
+                    self._registrar_fallo_recuperable(modelo, en_half_open=True)
+                    continue
+
+                # Si está en CLOSED, intentar 1 reintento técnico con backoff
+                if self.retry_backoff_ms > 0:
+                    time.sleep(self.retry_backoff_ms / 1000.0)
+
+                total_intentos += 1
+                intentos_modelo += 1
+                try:
+                    resultado = self.proveedor.generar_respuesta(
+                        modelo=modelo,
+                        prompt_sistema=prompt_sistema,
+                        mensaje_usuario=mensaje_usuario,
+                        temperatura=temperatura,
+                    )
+                    duracion_ms = (time.monotonic() - inicio_total) * 1000.0
+                    self._registrar_exito(modelo)
+                    return ResultadoProveedorIa(
+                        texto_respuesta=resultado.texto_respuesta,
+                        modelo=modelo,
+                        intentos=total_intentos,
+                        fallback_utilizado=(indice_modelo > 0),
+                        breaker_abierto=alguna_vez_breaker_abierto,
+                        duracion_ms=duracion_ms,
+                    )
+                except ProveedorIaRecuperableException as err_retry:
+                    ultimo_error = err_retry
+                    logger.warning(
+                        "Fallo recuperable en reintento técnico de modelo %s: %s. Saltando al siguiente modelo.",
+                        modelo,
+                        str(err_retry),
+                    )
+                    self._registrar_fallo_recuperable(modelo, en_half_open=False)
+                    continue
+                except (ProveedorIaNoRecuperableException, Exception):
+                    # Errores no recuperables, de autorización o de dominio detienen el flujo sin fallback ni reintento
+                    raise
             except (ProveedorIaNoRecuperableException, Exception):
-                # Errores no recuperables, de autorización o de dominio detienen el flujo sin fallback
                 raise
 
         raise ultimo_error or ProveedorIaRecuperableException(
-            "Se agotaron todos los modelos de la estrategia sin obtener respuesta."
+            "DRAWI no pudo procesar la solicitud en este momento. Intenta nuevamente."
+        )
+
+    def transcribir_con_fallback(
+        self,
+        *,
+        contenido_audio: bytes,
+        mime_type: str,
+        idioma: str = "es",
+    ) -> str:
+        ultimo_error: ProveedorIaRecuperableException | None = None
+
+        for modelo in self.modelos:
+            estado_breaker, esta_abierto = self._evaluar_estado_breaker(modelo)
+            if esta_abierto:
+                logger.warning(
+                    "Circuit breaker OPEN para modelo %s en transcripción. Omitiendo directamente hacia fallback.",
+                    modelo,
+                )
+                continue
+
+            es_half_open = estado_breaker == CircuitState.HALF_OPEN
+
+            # Intento 1
+            try:
+                texto = self.proveedor.transcribir_audio(
+                    modelo=modelo,
+                    contenido_audio=contenido_audio,
+                    mime_type=mime_type,
+                    idioma=idioma,
+                )
+                self._registrar_exito(modelo)
+                return texto
+            except ProveedorIaRecuperableException as err:
+                ultimo_error = err
+                logger.warning(
+                    "Fallo recuperable en transcripción (intento 1) con modelo %s: %s",
+                    modelo,
+                    str(err),
+                )
+                if es_half_open:
+                    self._registrar_fallo_recuperable(modelo, en_half_open=True)
+                    continue
+
+                if self.retry_backoff_ms > 0:
+                    time.sleep(self.retry_backoff_ms / 1000.0)
+
+                try:
+                    texto = self.proveedor.transcribir_audio(
+                        modelo=modelo,
+                        contenido_audio=contenido_audio,
+                        mime_type=mime_type,
+                        idioma=idioma,
+                    )
+                    self._registrar_exito(modelo)
+                    return texto
+                except ProveedorIaRecuperableException as err_retry:
+                    ultimo_error = err_retry
+                    logger.warning(
+                        "Fallo recuperable en reintento de transcripción con modelo %s: %s.",
+                        modelo,
+                        str(err_retry),
+                    )
+                    self._registrar_fallo_recuperable(modelo, en_half_open=False)
+                    continue
+                except (ProveedorIaNoRecuperableException, Exception):
+                    raise
+            except (ProveedorIaNoRecuperableException, Exception):
+                raise
+
+        raise ultimo_error or ProveedorIaRecuperableException(
+            "DRAWI no pudo procesar la solicitud en este momento. Intenta nuevamente."
         )

@@ -73,6 +73,24 @@ class SQLModelInteraccionIaRepository(InteraccionIaRepository):
         registros = self.bd.exec(sentencia).all()
         return [InteraccionIaMapper.a_dominio(registro) for registro in registros]
 
+    def listar_recientes_por_diagrama(
+        self,
+        id_diagrama: UUID,
+        limite: int = 5,
+    ) -> list[InteraccionIa]:
+        sentencia = (
+            select(InteraccionIaModel)
+            .where(
+                InteraccionIaModel.id_diagrama == id_diagrama,
+                InteraccionIaModel.fecha_eliminacion.is_(None),
+            )
+            .order_by(InteraccionIaModel.fecha_creacion.desc())
+            .limit(limite)
+        )
+        registros = self.bd.exec(sentencia).all()
+        # Invertir para preservar orden cronológico de lectura
+        return [InteraccionIaMapper.a_dominio(registro) for registro in reversed(registros)]
+
     def guardar(self, interaccion: InteraccionIa) -> None:
         sentencia = select(InteraccionIaModel).where(
             InteraccionIaModel.id == interaccion.id

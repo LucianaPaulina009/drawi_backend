@@ -4,11 +4,15 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.shared.domain.exceptions import (
+    BadGatewayException,
     ConflictException,
     DomainException,
     ForbiddenException,
     GoneException,
     NotFoundException,
+    PayloadTooLargeException,
+    ServiceUnavailableException,
+    UnsupportedMediaTypeException,
     ValidationException,
 )
 
@@ -36,6 +40,22 @@ def configurar_manejadores_excepciones(app: FastAPI) -> None:
     @app.exception_handler(GoneException)
     async def manejar_recurso_expirado(solicitud: Request, excepcion: GoneException):
         return JSONResponse(status_code=410, content=formatear_error(excepcion.code, excepcion.message))
+
+    @app.exception_handler(PayloadTooLargeException)
+    async def manejar_payload_grande(solicitud: Request, excepcion: PayloadTooLargeException):
+        return JSONResponse(status_code=413, content=formatear_error(excepcion.code, excepcion.message))
+
+    @app.exception_handler(UnsupportedMediaTypeException)
+    async def manejar_medio_no_soportado(solicitud: Request, excepcion: UnsupportedMediaTypeException):
+        return JSONResponse(status_code=415, content=formatear_error(excepcion.code, excepcion.message))
+
+    @app.exception_handler(BadGatewayException)
+    async def manejar_bad_gateway(solicitud: Request, excepcion: BadGatewayException):
+        return JSONResponse(status_code=502, content=formatear_error(excepcion.code, excepcion.message))
+
+    @app.exception_handler(ServiceUnavailableException)
+    async def manejar_servicio_no_disponible(solicitud: Request, excepcion: ServiceUnavailableException):
+        return JSONResponse(status_code=503, content=formatear_error(excepcion.code, excepcion.message))
 
     @app.exception_handler(ValidationException)
     async def manejar_validacion(solicitud: Request, excepcion: ValidationException):

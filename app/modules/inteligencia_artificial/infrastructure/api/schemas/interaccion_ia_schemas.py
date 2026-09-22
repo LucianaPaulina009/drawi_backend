@@ -10,6 +10,7 @@ class EnviarMensajeIaRequest(BaseModel):
 
     texto: str = Field(..., min_length=1, max_length=2000, description="Mensaje para el asistente IA.")
     clave_idempotencia: UUID = Field(..., alias="claveIdempotencia", description="UUID de idempotencia del envío.")
+    tipo_interaccion: str | None = Field(default="texto", alias="tipoInteraccion", description="Tipo de interacción ('texto', 'audio').")
 
 
 class InteraccionIaRead(BaseModel):

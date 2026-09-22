@@ -29,7 +29,7 @@ class ProveedorGoogleGemini(ProveedorIa):
         self._timeout_segundos = (
             timeout_segundos
             if timeout_segundos is not None
-            else settings.GEMINI_TIMEOUT_SECONDS
+            else settings.IA_GEMINI_TIMEOUT_SECONDS
         )
         self._client: genai.Client | None = None
 
@@ -109,6 +109,76 @@ class ProveedorGoogleGemini(ProveedorIa):
         except Exception as e:
             logger.error(
                 "Error inesperado al generar respuesta con Gemini (modelo=%s): %s",
+                modelo,
+                str(e),
+            )
+            raise ProveedorIaRecuperableException(
+                f"Error inesperado con el modelo {modelo}: {str(e)}"
+            ) from e
+
+    def transcribir_audio(
+        self,
+        *,
+        modelo: str,
+        contenido_audio: bytes,
+        mime_type: str,
+        idioma: str = "es",
+    ) -> str:
+        cliente = self._obtener_cliente()
+        mime_base = mime_type.split(";")[0].strip().lower()
+        part_audio = types.Part.from_bytes(data=contenido_audio, mime_type=mime_base)
+        prompt_transcripcion = (
+            "Transcribe el audio de forma exacta y literal a texto en español. "
+            "No agregues comentarios, explicaciones, formato markdown, comillas ni texto adicional. "
+            "Devuelve únicamente las palabras transcritas."
+        )
+        try:
+            config = types.GenerateContentConfig(
+                temperature=0.0,
+            )
+            respuesta = cliente.models.generate_content(
+                model=modelo,
+                contents=[part_audio, prompt_transcripcion],
+                config=config,
+            )
+            return (respuesta.text or "").strip()
+        except errors.APIError as e:
+            codigo = getattr(e, "code", None)
+            mensaje = getattr(e, "message", str(e))
+            logger.error(
+                "Error en transcripción Gemini API (modelo=%s, status=%s): %s",
+                modelo,
+                codigo,
+                mensaje,
+            )
+            if (
+                codigo in (429, 500, 502, 503, 504, 404)
+                or "rate limit" in mensaje.lower()
+                or "quota" in mensaje.lower()
+                or "unavailable" in mensaje.lower()
+            ):
+                raise ProveedorIaRecuperableException(
+                    f"Error temporal del proveedor Gemini ({codigo}): {mensaje}"
+                ) from e
+            if codigo in (401, 403):
+                raise ProveedorIaNoRecuperableException(
+                    f"Error de autorización en Gemini: {mensaje}"
+                ) from e
+            raise ProveedorIaNoRecuperableException(
+                f"Error no recuperable de Gemini ({codigo}): {mensaje}"
+            ) from e
+        except (TimeoutError, errors.ClientError) as e:
+            logger.error(
+                "Timeout o error de cliente con Gemini al transcribir (modelo=%s): %s",
+                modelo,
+                str(e),
+            )
+            raise ProveedorIaRecuperableException(
+                f"Timeout o error de conexión con Gemini: {str(e)}"
+            ) from e
+        except Exception as e:
+            logger.error(
+                "Error inesperado al transcribir con Gemini (modelo=%s): %s",
                 modelo,
                 str(e),
             )

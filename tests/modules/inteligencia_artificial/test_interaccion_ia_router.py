@@ -233,3 +233,131 @@ def test_interaccion_ia_api_crear_estructura_nm_con_atributo(client: TestClient,
     set_proveedor_ia_override(None)
 
 
+def test_interaccion_ia_api_audio_unificado(client: TestClient, session: Session):
+    from app.modules.inteligencia_artificial.application.ports.providers.proveedor_transcripcion import (
+        ProveedorTranscripcion,
+        ResultadoTranscripcion,
+    )
+    from app.modules.inteligencia_artificial.infrastructure.api.routers.interaccion_ia_router import (
+        set_proveedor_transcripcion_override,
+    )
+    from app.modules.diagramas.infrastructure.persistence.models.clase_model import ClaseModel
+
+    usuario = BetterAuthUser(id="usuario-propietario-1", name="PropAudio", email="audio@drawi.com", email_verified=True)
+    session.add(usuario)
+    session.commit()
+
+    proyecto = ProyectoModel(propietario_id=usuario.id, nombre="Proy Audio", color="azul", icono="caja", slug="proy-audio")
+    session.add(proyecto)
+    session.commit()
+
+    diagrama = DiagramaModel(id_proyecto=proyecto.id, nombre="Pagina 1", numero=1)
+    session.add(diagrama)
+    session.commit()
+
+    class FakeTranscripcionProveedor(ProveedorTranscripcion):
+        def transcribir_audio(self, *, contenido_audio: bytes, mime_type: str, idioma: str | None = None) -> ResultadoTranscripcion:
+            return ResultadoTranscripcion(texto="Crea una clase Factura con total y fecha", idioma="es")
+
+    class FakeAudioIaProveedor(ProveedorIa):
+        def generar_respuesta(self, *, modelo: str, prompt_sistema: str, mensaje_usuario: str, temperatura: float = 0.2) -> ResultadoProveedorIa:
+            return ResultadoProveedorIa(
+                texto_respuesta='{"respuesta_usuario": "Clase Factura creada exitosamente.", "acciones": [{"tipo": "crear_clase", "referencia": "factura", "nombre": "Factura", "atributos": [{"nombre": "total", "tipo_dato": "decimal"}, {"nombre": "fecha", "tipo_dato": "date"}]}]}',
+                modelo=modelo,
+            )
+
+    set_proveedor_transcripcion_override(FakeTranscripcionProveedor())
+    set_proveedor_ia_override(FakeAudioIaProveedor())
+
+    clave = str(uuid4())
+    res_audio = client.post(
+        f"/api/diagramas/{diagrama.id}/interacciones-ia/audio",
+        files={"audio": ("grabacion.webm", b"fake-audio-payload", "audio/webm")},
+        data={"clave_idempotencia": clave, "duracion_segundos": "3.5"},
+    )
+    assert res_audio.status_code == 201, res_audio.text
+    data = res_audio.json()
+
+    assert data["tipoInteraccion"] == "audio"
+    assert data["entradaUsuario"] == "Crea una clase Factura con total y fecha"
+    assert data["respuestaIa"] == "Clase Factura creada exitosamente."
+    assert data["estado"] == "completado"
+
+    # Verificar que en base de datos existe exactamente una interacción
+    res_get = client.get(f"/api/diagramas/{diagrama.id}/interacciones-ia")
+    assert res_get.status_code == 200
+    items = res_get.json()["items"]
+    assert len(items) == 1
+    assert items[0]["entradaUsuario"] == "Crea una clase Factura con total y fecha"
+    assert items[0]["tipoInteraccion"] == "audio"
+
+    # Verificar que el plan se ejecutó creando la clase en el dominio
+    from sqlmodel import select
+    clases = session.exec(select(ClaseModel).where(ClaseModel.id_diagrama == diagrama.id)).all()
+    assert len(clases) == 1
+    assert clases[0].nombre == "Factura"
+
+    set_proveedor_transcripcion_override(None)
+    set_proveedor_ia_override(None)
+
+
+def test_interaccion_ia_api_audio_rechaza_archivo_vacio(client: TestClient, session: Session):
+    usuario = BetterAuthUser(id="usuario-propietario-1", name="PropAudioVacio", email="audiovacio@drawi.com", email_verified=True)
+    session.add(usuario)
+    session.commit()
+
+    proyecto = ProyectoModel(propietario_id=usuario.id, nombre="Proy Audio Vacio", color="azul", icono="caja", slug="proy-audio-vacio")
+    session.add(proyecto)
+    session.commit()
+
+    diagrama = DiagramaModel(id_proyecto=proyecto.id, nombre="Pagina 1", numero=1)
+    session.add(diagrama)
+    session.commit()
+
+    res = client.post(
+        f"/api/diagramas/{diagrama.id}/interacciones-ia/audio",
+        files={"audio": ("vacio.webm", b"", "audio/webm")},
+        data={"clave_idempotencia": str(uuid4())},
+    )
+    assert res.status_code == 400
+
+
+def test_interaccion_ia_api_audio_rechaza_transcripcion_vacia(client: TestClient, session: Session):
+    from app.modules.inteligencia_artificial.application.ports.providers.proveedor_transcripcion import (
+        ProveedorTranscripcion,
+        ResultadoTranscripcion,
+    )
+    from app.modules.inteligencia_artificial.infrastructure.api.routers.interaccion_ia_router import (
+        set_proveedor_transcripcion_override,
+    )
+
+    usuario = BetterAuthUser(id="usuario-propietario-1", name="PropAudioSilencio", email="silencio@drawi.com", email_verified=True)
+    session.add(usuario)
+    session.commit()
+
+    proyecto = ProyectoModel(propietario_id=usuario.id, nombre="Proy Silencio", color="azul", icono="caja", slug="proy-silencio")
+    session.add(proyecto)
+    session.commit()
+
+    diagrama = DiagramaModel(id_proyecto=proyecto.id, nombre="Pagina 1", numero=1)
+    session.add(diagrama)
+    session.commit()
+
+    class FakeSilencioProveedor(ProveedorTranscripcion):
+        def transcribir_audio(self, *, contenido_audio: bytes, mime_type: str, idioma: str | None = None) -> ResultadoTranscripcion:
+            return ResultadoTranscripcion(texto="   ", idioma="es")
+
+    set_proveedor_transcripcion_override(FakeSilencioProveedor())
+
+    res = client.post(
+        f"/api/diagramas/{diagrama.id}/interacciones-ia/audio",
+        files={"audio": ("silencio.webm", b"silence-bytes", "audio/webm")},
+        data={"clave_idempotencia": str(uuid4())},
+    )
+    assert res.status_code == 422
+    assert "No se detectó contenido comprensible" in res.text
+
+    set_proveedor_transcripcion_override(None)
+
+
+

@@ -1,8 +1,12 @@
 from app.shared.domain.exceptions import (
+    BadGatewayException,
     ConflictException,
     DomainException,
     ForbiddenException,
     NotFoundException,
+    PayloadTooLargeException,
+    ServiceUnavailableException,
+    UnsupportedMediaTypeException,
     ValidationException,
 )
 
@@ -60,3 +64,38 @@ class RespuestaIaInvalidaException(ValidationException):
 class PlanIaInvalidoException(ValidationException):
     code = "PLAN_IA_INVALIDO"
     message = "El plan de acciones de la IA contiene dependencias no resolubles o no válidas."
+
+
+class AudioVacioException(ValidationException):
+    code = "AUDIO_VACIO"
+    message = "El archivo de audio está vacío."
+
+
+class AudioInvalidoException(ValidationException):
+    code = "AUDIO_INVALIDO"
+    message = "El archivo de audio no es válido o está corrupto."
+
+
+class FormatoAudioNoSoportadoException(UnsupportedMediaTypeException):
+    code = "FORMATO_AUDIO_NO_SOPORTADO"
+    message = "El formato de audio enviado no es compatible con el servicio de transcripción."
+
+
+class TamanoAudioExcedidoException(PayloadTooLargeException):
+    code = "TAMANO_AUDIO_EXCEDIDO"
+    message = "El tamaño del audio excede el límite máximo permitido de 10 MiB."
+
+
+class DuracionAudioExcedidaException(PayloadTooLargeException):
+    code = "DURACION_AUDIO_EXCEDIDA"
+    message = "La duración del audio excede el límite máximo permitido de 60 segundos."
+
+
+class ProveedorTranscripcionException(BadGatewayException):
+    code = "ERROR_PROVEEDOR_TRANSCRIPCION"
+    message = "Error al procesar el audio con el proveedor de transcripción."
+
+
+class ProveedorTranscripcionRecuperableException(ServiceUnavailableException):
+    code = "ERROR_RECUPERABLE_PROVEEDOR_TRANSCRIPCION"
+    message = "El servicio de transcripción no está disponible temporalmente o excedió el tiempo de espera."

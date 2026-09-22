@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from uuid import UUID
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, File, Form, Query, UploadFile, status
 
 from app.core.dependencies import CurrentUser, DBSession, UoWDep
 from app.modules.diagramas.application.queries.diagrama.obtener_diagrama import (
@@ -44,6 +44,9 @@ from app.modules.gestion_proyectos.infrastructure.persistence.repositories.sqlmo
 from app.modules.inteligencia_artificial.application.ports.providers.proveedor_ia import (
     ProveedorIa,
 )
+from app.modules.inteligencia_artificial.application.ports.providers.proveedor_transcripcion import (
+    ProveedorTranscripcion,
+)
 from app.modules.inteligencia_artificial.application.queries.listar_interacciones_ia import (
     ListarInteraccionesIaQuery,
     ListarInteraccionesIaQueryHandler,
@@ -61,6 +64,10 @@ from app.modules.inteligencia_artificial.application.use_cases.procesar_mensaje_
     ProcesarMensajeIaCommand,
     ProcesarMensajeIaUseCase,
 )
+from app.modules.inteligencia_artificial.application.use_cases.transcribir_audio_ia import (
+    TranscribirAudioIaCommand,
+    TranscribirAudioIaUseCase,
+)
 from app.modules.inteligencia_artificial.domain.entities.interaccion_ia import (
     InteraccionIa,
 )
@@ -69,8 +76,14 @@ from app.modules.inteligencia_artificial.infrastructure.api.schemas.interaccion_
     InteraccionIaRead,
     ListaInteraccionesIaRead,
 )
+from app.modules.inteligencia_artificial.infrastructure.api.schemas.transcripcion_ia_schemas import (
+    TranscripcionIaResponse,
+)
 from app.modules.inteligencia_artificial.infrastructure.external.proveedor_google_gemini import (
     ProveedorGoogleGemini,
+)
+from app.modules.inteligencia_artificial.infrastructure.external.proveedor_transcripcion_gemini import (
+    ProveedorTranscripcionGemini,
 )
 from app.modules.inteligencia_artificial.infrastructure.persistence.repositories.sqlmodel_interaccion_ia_repository import (
     SQLModelInteraccionIaRepository,
@@ -79,6 +92,7 @@ from app.modules.inteligencia_artificial.infrastructure.persistence.repositories
 router = APIRouter(prefix="/diagramas", tags=["Inteligencia Artificial"])
 
 _proveedor_ia_singleton: ProveedorIa | None = None
+_proveedor_transcripcion_singleton: ProveedorTranscripcion | None = None
 
 
 def get_proveedor_ia() -> ProveedorIa:
@@ -91,6 +105,22 @@ def get_proveedor_ia() -> ProveedorIa:
 def set_proveedor_ia_override(override: ProveedorIa | None) -> None:
     global _proveedor_ia_singleton
     _proveedor_ia_singleton = override
+
+
+def get_proveedor_transcripcion() -> ProveedorTranscripcion:
+    global _proveedor_transcripcion_singleton
+    if _proveedor_transcripcion_singleton is None:
+        _proveedor_transcripcion_singleton = ProveedorTranscripcionGemini(
+            proveedor_ia=get_proveedor_ia()
+        )
+    return _proveedor_transcripcion_singleton
+
+
+def set_proveedor_transcripcion_override(
+    override: ProveedorTranscripcion | None,
+) -> None:
+    global _proveedor_transcripcion_singleton
+    _proveedor_transcripcion_singleton = override
 
 
 def _a_read(entidad: InteraccionIa) -> InteraccionIaRead:
@@ -154,18 +184,10 @@ def listar_interacciones_ia(
     )
 
 
-@router.post(
-    "/{id_diagrama}/interacciones-ia",
-    response_model=InteraccionIaRead,
-    status_code=status.HTTP_201_CREATED,
-)
-def enviar_mensaje_ia(
-    id_diagrama: UUID,
-    payload: EnviarMensajeIaRequest,
-    usuario: CurrentUser,
+def _crear_procesar_mensaje_ia_use_case(
     session: DBSession,
     uow: UoWDep,
-) -> InteraccionIaRead:
+) -> ProcesarMensajeIaUseCase:
     proyecto_repo = SQLModelProyectoRepository(session)
     diagrama_repo = SQLModelDiagramaRepository(session)
     interaccion_repo = SQLModelInteraccionIaRepository(session)
@@ -339,7 +361,7 @@ def enviar_mensaje_ia(
         estructura_nm_repository=estructura_nm_repo,
     )
 
-    use_case = ProcesarMensajeIaUseCase(
+    return ProcesarMensajeIaUseCase(
         proyecto_repository=proyecto_repo,
         diagrama_repository=diagrama_repo,
         interaccion_repository=interaccion_repo,
@@ -351,13 +373,144 @@ def enviar_mensaje_ia(
         colaborador_repository=colaborador_repo,
     )
 
+
+@router.post(
+    "/{id_diagrama}/interacciones-ia",
+    response_model=InteraccionIaRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def enviar_mensaje_ia(
+    id_diagrama: UUID,
+    payload: EnviarMensajeIaRequest,
+    usuario: CurrentUser,
+    session: DBSession,
+    uow: UoWDep,
+) -> InteraccionIaRead:
+    use_case = _crear_procesar_mensaje_ia_use_case(session, uow)
+
     interaccion = use_case.execute(
         ProcesarMensajeIaCommand(
             usuario_id=usuario.user_id,
             diagrama_id=id_diagrama,
             texto=payload.texto,
             clave_idempotencia=payload.clave_idempotencia,
+            tipo_interaccion=payload.tipo_interaccion or "texto",
         )
     )
 
     return _a_read(interaccion)
+
+
+@router.post(
+    "/{id_diagrama}/interacciones-ia/audio",
+    response_model=InteraccionIaRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def enviar_audio_ia(
+    id_diagrama: UUID,
+    usuario: CurrentUser,
+    session: DBSession,
+    uow: UoWDep,
+    audio: UploadFile = File(..., description="Archivo de audio temporal grabado por el usuario."),
+    clave_idempotencia: UUID = Form(..., description="Clave única de idempotencia."),
+    duracion_segundos: float | None = Form(default=None, alias="duracion_segundos"),
+    idioma: str | None = Form(default=None),
+) -> InteraccionIaRead:
+    contenido_audio = await audio.read()
+    if not contenido_audio:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo de audio proporcionado está vacío.",
+        )
+
+    mime_type = audio.content_type or "audio/webm"
+    proveedor_transcripcion = get_proveedor_transcripcion()
+
+    proyecto_repo = SQLModelProyectoRepository(session)
+    diagrama_repo = SQLModelDiagramaRepository(session)
+    colaborador_repo = SQLModelColaboradorProyectoRepository(session)
+
+    use_case_transcripcion = TranscribirAudioIaUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        proveedor_transcripcion=proveedor_transcripcion,
+        colaborador_repository=colaborador_repo,
+    )
+
+    resultado_transcripcion = use_case_transcripcion.execute(
+        TranscribirAudioIaCommand(
+            usuario_id=usuario.user_id,
+            diagrama_id=id_diagrama,
+            contenido_audio=contenido_audio,
+            mime_type=mime_type,
+            duracion_segundos=duracion_segundos,
+            idioma=idioma,
+        )
+    )
+
+    texto_transcrito = (resultado_transcripcion.texto or "").strip()
+    if not texto_transcrito:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No se detectó contenido comprensible en el audio grabado.",
+        )
+
+    use_case_procesar = _crear_procesar_mensaje_ia_use_case(session, uow)
+    interaccion = use_case_procesar.execute(
+        ProcesarMensajeIaCommand(
+            usuario_id=usuario.user_id,
+            diagrama_id=id_diagrama,
+            texto=texto_transcrito,
+            clave_idempotencia=clave_idempotencia,
+            tipo_interaccion="audio",
+        )
+    )
+
+    return _a_read(interaccion)
+
+
+@router.post(
+    "/{id_diagrama}/transcripciones-ia",
+    response_model=TranscripcionIaResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def transcribir_audio_ia(
+    id_diagrama: UUID,
+    usuario: CurrentUser,
+    session: DBSession,
+    audio: UploadFile = File(..., description="Archivo de audio grabado por el usuario."),
+    duracion_segundos: float | None = Form(default=None, alias="duracion_segundos"),
+    idioma: str | None = Form(default=None),
+) -> TranscripcionIaResponse:
+    proyecto_repo = SQLModelProyectoRepository(session)
+    diagrama_repo = SQLModelDiagramaRepository(session)
+    colaborador_repo = SQLModelColaboradorProyectoRepository(session)
+    proveedor = get_proveedor_transcripcion()
+
+    use_case = TranscribirAudioIaUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        proveedor_transcripcion=proveedor,
+        colaborador_repository=colaborador_repo,
+    )
+
+    contenido_audio = await audio.read()
+    mime_type = audio.content_type or "audio/webm"
+
+    resultado = use_case.execute(
+        TranscribirAudioIaCommand(
+            usuario_id=usuario.user_id,
+            diagrama_id=id_diagrama,
+            contenido_audio=contenido_audio,
+            mime_type=mime_type,
+            duracion_segundos=duracion_segundos,
+            idioma=idioma,
+        )
+    )
+
+    return TranscripcionIaResponse(
+        texto=resultado.texto,
+        idioma=resultado.idioma,
+    )

@@ -43,3 +43,27 @@ class GoneException(DomainException):
     """Mapea a HTTP 410 (Gone)."""
 
     code = "GONE"
+
+
+class PayloadTooLargeException(DomainException):
+    """Mapea a HTTP 413 (Payload Too Large)."""
+
+    code = "PAYLOAD_TOO_LARGE"
+
+
+class UnsupportedMediaTypeException(DomainException):
+    """Mapea a HTTP 415 (Unsupported Media Type)."""
+
+    code = "UNSUPPORTED_MEDIA_TYPE"
+
+
+class BadGatewayException(DomainException):
+    """Mapea a HTTP 502 (Bad Gateway)."""
+
+    code = "BAD_GATEWAY"
+
+
+class ServiceUnavailableException(DomainException):
+    """Mapea a HTTP 503 (Service Unavailable)."""
+
+    code = "SERVICE_UNAVAILABLE"

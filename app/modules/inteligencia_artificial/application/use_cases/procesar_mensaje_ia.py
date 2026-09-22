@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -40,11 +42,14 @@ from app.modules.inteligencia_artificial.domain.entities.interaccion_ia import (
 from app.modules.inteligencia_artificial.domain.exceptions import (
     ClaveIdempotenciaConflictoException,
     PlanIaInvalidoException,
+    ProveedorIaRecuperableException,
 )
 from app.modules.inteligencia_artificial.domain.repositories.interaccion_ia_repository import (
     InteraccionIaRepository,
 )
 from app.shared.application.ports import UnitOfWork
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -53,6 +58,7 @@ class ProcesarMensajeIaCommand:
     diagrama_id: UUID
     texto: str
     clave_idempotencia: UUID
+    tipo_interaccion: str = "texto"
 
 
 class ProcesarMensajeIaUseCase:
@@ -81,6 +87,8 @@ class ProcesarMensajeIaUseCase:
         self.colaborador_repo = colaborador_repository
 
     def execute(self, command: ProcesarMensajeIaCommand) -> InteraccionIa:
+        inicio_total = time.monotonic()
+
         # 1. Autorización de lectura/acceso al diagrama
         diagrama = obtener_diagrama_autorizado(
             propietario_id=command.usuario_id,
@@ -106,17 +114,21 @@ class ProcesarMensajeIaUseCase:
             id_usuario=command.usuario_id,
             id_diagrama=command.diagrama_id,
             clave_idempotencia=command.clave_idempotencia,
+            tipo_interaccion=command.tipo_interaccion or "texto",
             entrada_usuario=texto_limpio,
         )
         self.interaccion_repo.guardar(interaccion)
         self.uow.commit()
 
-        # 4. Construir contexto del diagrama
-        prompt_sistema = self.constructor_contexto.construir_contexto(
+        # 4. Construir contexto determinista del diagrama (siempre fresco desde BD)
+        inicio_contexto = time.monotonic()
+        prompt_sistema, nivel_contexto = self.constructor_contexto.construir_contexto_con_metadatos(
             proyecto_id=diagrama.id_proyecto,
             diagrama_id=command.diagrama_id,
             usuario_id=command.usuario_id,
+            mensaje_usuario=texto_limpio,
         )
+        context_ms = (time.monotonic() - inicio_contexto) * 1000.0
 
         # 5. Invocar al coordinador de modelos Gemini con fallback
         interaccion.marcar_procesando()
@@ -168,6 +180,20 @@ class ProcesarMensajeIaUseCase:
             )
             self.interaccion_repo.guardar(interaccion)
             self.uow.commit()
+
+            total_ms = (time.monotonic() - inicio_total) * 1000.0
+            logger.info(
+                "[DRAWI IA] contextLevel=%d contextMs=%.1f model=%s attempts=%d fallback=%s breakerOpen=%s geminiMs=%.1f totalMs=%.1f",
+                nivel_contexto,
+                context_ms,
+                resultado_gemini.modelo,
+                resultado_gemini.intentos,
+                resultado_gemini.fallback_utilizado,
+                resultado_gemini.breaker_abierto,
+                resultado_gemini.duracion_ms,
+                total_ms,
+            )
+
             return interaccion
 
         except PlanIaInvalidoException as err:
@@ -185,7 +211,29 @@ class ProcesarMensajeIaUseCase:
             self.uow.commit()
             return interaccion
 
+        except ProveedorIaRecuperableException as err:
+            total_ms = (time.monotonic() - inicio_total) * 1000.0
+            logger.error(
+                "[DRAWI IA ERROR] Fallo técnico del proveedor IA: %s (contextLevel=%d, totalMs=%.1f)",
+                str(err),
+                nivel_contexto,
+                total_ms,
+            )
+            interaccion.marcar_error(
+                respuesta_ia="DRAWI no pudo procesar la solicitud en este momento. Intenta nuevamente.",
+                detalle_ejecucion={"error": str(err)},
+            )
+            self.interaccion_repo.guardar(interaccion)
+            self.uow.commit()
+            raise
+
         except Exception as err:
+            total_ms = (time.monotonic() - inicio_total) * 1000.0
+            logger.error(
+                "[DRAWI IA ERROR] Error no recuperable al procesar interacción: %s (totalMs=%.1f)",
+                str(err),
+                total_ms,
+            )
             interaccion.marcar_error(
                 respuesta_ia="Ocurrió un error al procesar tu solicitud con el asistente.",
                 detalle_ejecucion={"error": str(err)},
