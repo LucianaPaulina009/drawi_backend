@@ -156,6 +156,12 @@ from app.modules.diagramas.infrastructure.api.routers.operacion_diagrama_router 
 from app.modules.inteligencia_artificial.infrastructure.api.routers.interaccion_ia_router import (
     router as interaccion_ia_router,
 )
+from app.modules.generacion_backend.infrastructure.api.routers.generacion_backend_router import (
+    router as generacion_backend_router,
+)
+from app.modules.intercambio_enterprise_architect.infrastructure.api.routers.intercambio_enterprise_architect_router import (
+    router as intercambio_enterprise_architect_router,
+)
 
 app.include_router(proyecto_router, prefix="/api")
 app.include_router(invitacion_router, prefix="/api")
@@ -167,6 +173,8 @@ app.include_router(relacion_router, prefix="/api")
 app.include_router(referencia_fk_router, prefix="/api")
 app.include_router(estructura_relacion_nm_router, prefix="/api")
 app.include_router(interaccion_ia_router, prefix="/api")
+app.include_router(generacion_backend_router, prefix="/api")
+app.include_router(intercambio_enterprise_architect_router, prefix="/api")
 app.include_router(colaboracion_ws_router, prefix="/api")
 app.include_router(operacion_diagrama_router)
 
