@@ -63,6 +63,10 @@ class FakeProyectoRepository(ProyectoRepository):
     def eliminar(self, proyecto_id: UUID) -> None:
         self.proyectos = [p for p in self.proyectos if p.id != proyecto_id]
 
+    def actualizar_fecha_actividad(self, proyecto_id: UUID) -> None:
+        pass
+
+
 
 class FakeProyectoFavoritoRepository(ProyectoFavoritoRepository):
     def __init__(self):

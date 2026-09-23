@@ -77,6 +77,8 @@ class SQLModelListadoProyectosUsuarioReader(ListadoProyectosUsuarioReader):
                 es_favorito=bool(fila[1]),
                 slug=fila[0].slug,
                 propietario_id=fila[0].propietario_id,
+                es_dueno=(fila[0].propietario_id == usuario_id),
             )
             for fila in filas
         ]
+

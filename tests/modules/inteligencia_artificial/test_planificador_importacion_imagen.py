@@ -1290,3 +1290,167 @@ def test_planificador_caso_usuario_producto_venta_hola_agregacion_y_nm():
     assert rels[0].clase_destino_referencia == "ref_venta"
 
 
+def test_planificador_normaliza_referencia_con_espacios_en_relaciones():
+    diag_rec = DiagramaReconocidoIa(
+        clases=[
+            ClaseReconocidaIa(
+                referencia_semantica="ref_prod",
+                nombre="Producto",
+                atributos=[],
+            ),
+            ClaseReconocidaIa(
+                referencia_semantica="ref_cat",
+                nombre="Categoría",
+                atributos=[],
+            ),
+        ],
+        relaciones=[
+            # Note the spaces and tilde differences Gemini might produce:
+            RelacionReconocidaIa(
+                origen_ref="ref producto",
+                destino_ref="categoria",
+                tipo="asociacion",
+                cardinalidad_origen="1",
+                cardinalidad_destino="0..*",
+            )
+        ],
+    )
+
+    plan = PlanificadorImportacionImagen.construir_plan(
+        diagrama_reconocido=diag_rec,
+        diagrama_existente=None,
+        posiciones_layout={"ref_prod": (100, 100), "ref_cat": (400, 100)},
+    )
+
+    rels = [a for a in plan.acciones if isinstance(a, AccionCrearRelacionSchema)]
+    assert len(rels) == 1
+    assert rels[0].clase_origen_referencia == "ref_prod"
+    assert rels[0].clase_destino_referencia == "ref_cat"
+
+
+def test_planificador_relacion_con_clase_inexistente_genera_advertencia():
+    diag_rec = DiagramaReconocidoIa(
+        clases=[
+            ClaseReconocidaIa(
+                referencia_semantica="ref_prod",
+                nombre="Producto",
+                atributos=[],
+            ),
+        ],
+        relaciones=[
+            RelacionReconocidaIa(
+                origen_ref="ref_prod",
+                destino_ref="ref_fantasma",
+                tipo="asociacion",
+                cardinalidad_origen="1",
+                cardinalidad_destino="0..*",
+            )
+        ],
+    )
+
+    plan = PlanificadorImportacionImagen.construir_plan(
+        diagrama_reconocido=diag_rec,
+        diagrama_existente=None,
+        posiciones_layout={"ref_prod": (100, 100)},
+    )
+
+    rels = [a for a in plan.acciones if isinstance(a, AccionCrearRelacionSchema)]
+    # The invalid relation is omitted safely
+    assert len(rels) == 0
+    # A warning is registered explaining why
+    assert any("omitida" in adv and "no fue encontrada" in adv for adv in plan.advertencias)
+
+
+def test_planificador_diagrama_completo_no_falsos_positivos_nm():
+    diag_rec = DiagramaReconocidoIa(
+        clases=[
+            ClaseReconocidaIa(referencia_semantica="ref_vehiculo", nombre="Vehiculo", atributos=[
+                AtributoReconocidoIa(nombre="id", es_pk=True),
+                AtributoReconocidoIa(nombre="placa"),
+                AtributoReconocidoIa(nombre="modelo"),
+            ]),
+            ClaseReconocidaIa(referencia_semantica="ref_auto", nombre="Auto", atributos=[
+                AtributoReconocidoIa(nombre="id", es_pk=True),
+                AtributoReconocidoIa(nombre="name"),
+            ]),
+            ClaseReconocidaIa(referencia_semantica="ref_camion", nombre="Camion", atributos=[
+                AtributoReconocidoIa(nombre="id", es_pk=True),
+                AtributoReconocidoIa(nombre="name"),
+            ]),
+            ClaseReconocidaIa(referencia_semantica="ref_venta", nombre="Venta", atributos=[
+                AtributoReconocidoIa(nombre="id", es_pk=True),
+                AtributoReconocidoIa(nombre="fecha"),
+            ]),
+            ClaseReconocidaIa(referencia_semantica="ref_nose", nombre="No se", atributos=[
+                AtributoReconocidoIa(nombre="id", es_pk=True),
+                AtributoReconocidoIa(nombre="hola"),
+            ]),
+            ClaseReconocidaIa(referencia_semantica="ref_hola", nombre="Hola", atributos=[
+                AtributoReconocidoIa(nombre="id", es_pk=True),
+                AtributoReconocidoIa(nombre="como estas"),
+            ]),
+            ClaseReconocidaIa(referencia_semantica="ref_categoria", nombre="Categoria", atributos=[
+                AtributoReconocidoIa(nombre="id", es_pk=True),
+                AtributoReconocidoIa(nombre="nombre"),
+                AtributoReconocidoIa(nombre="id_padre"),
+            ]),
+            ClaseReconocidaIa(referencia_semantica="ref_producto", nombre="Producto", atributos=[
+                AtributoReconocidoIa(nombre="id", es_pk=True),
+                AtributoReconocidoIa(nombre="name"),
+                AtributoReconocidoIa(nombre="precio"),
+                AtributoReconocidoIa(nombre="id_categoria"),
+            ]),
+            ClaseReconocidaIa(referencia_semantica="ref_pv", nombre="Producto_Venta", atributos=[
+                AtributoReconocidoIa(nombre="id", es_pk=True),
+                AtributoReconocidoIa(nombre="id_producto", es_fk=True),
+                AtributoReconocidoIa(nombre="id_venta", es_fk=True),
+                AtributoReconocidoIa(nombre="cantidad"),
+            ]),
+        ],
+        relaciones=[
+            RelacionReconocidaIa(origen_ref="ref_auto", destino_ref="ref_vehiculo", tipo="generalizacion"),
+            RelacionReconocidaIa(origen_ref="ref_camion", destino_ref="ref_vehiculo", tipo="generalizacion"),
+            RelacionReconocidaIa(origen_ref="ref_nose", destino_ref="ref_venta", tipo="agregacion"),
+            RelacionReconocidaIa(origen_ref="ref_hola", destino_ref="ref_venta", tipo="composicion"),
+            RelacionReconocidaIa(origen_ref="ref_categoria", destino_ref="ref_categoria", tipo="asociacion", cardinalidad_origen="1", cardinalidad_destino="0..*"),
+            RelacionReconocidaIa(origen_ref="ref_categoria", destino_ref="ref_producto", tipo="asociacion", cardinalidad_origen="1", cardinalidad_destino="0..*"),
+            RelacionReconocidaIa(origen_ref="ref_producto", destino_ref="ref_pv", tipo="asociacion", cardinalidad_origen="1", cardinalidad_destino="0..*"),
+            RelacionReconocidaIa(origen_ref="ref_venta", destino_ref="ref_pv", tipo="asociacion", cardinalidad_origen="1", cardinalidad_destino="0..*"),
+            RelacionReconocidaIa(origen_ref="ref_producto", destino_ref="ref_venta", tipo="asociacion", es_nm=True, cardinalidad_origen="0..*", cardinalidad_destino="0..*"),
+        ],
+    )
+
+    pos = {c.referencia_semantica: (100.0, 100.0) for c in diag_rec.clases}
+    plan = PlanificadorImportacionImagen.construir_plan(diag_rec, None, pos)
+
+    clases = [a for a in plan.acciones if isinstance(a, AccionCrearClaseSchema)]
+    nombres_clases = [c.nombre for c in clases]
+
+    # Verify that Producto and No se are regular classes and NOT falsely treated as intermediate tables
+    assert "Producto" in nombres_clases
+    assert "No se" in nombres_clases
+    assert "Hola" in nombres_clases
+    assert "Categoria" in nombres_clases
+    assert "Venta" in nombres_clases
+    assert len(clases) == 8
+
+    # Verify that Producto_Venta is the single intermediate table created via CrearEstructuraNm
+    estructuras_nm = [a for a in plan.acciones if isinstance(a, AccionCrearEstructuraNmSchema)]
+    assert len(estructuras_nm) == 1
+    assert estructuras_nm[0].nombre_intermedia == "Producto_Venta"
+    assert estructuras_nm[0].clase_origen_referencia == "ref_producto"
+    assert estructuras_nm[0].clase_destino_referencia == "ref_venta"
+
+    # Verify relations: herencia (auto, camion), agregacion (no se), composicion (hola), recursiva (categoria), 1:N (categoria -> producto)
+    rels = [a for a in plan.acciones if isinstance(a, AccionCrearRelacionSchema)]
+    assert len(rels) == 6
+    tipos = {r.tipo_relacion for r in rels}
+    assert "herencia" in tipos
+    assert "agregacion" in tipos
+    assert "composicion" in tipos
+    assert "asociacion" in tipos
+
+
+
+
+

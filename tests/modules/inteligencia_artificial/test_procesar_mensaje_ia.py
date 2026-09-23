@@ -229,7 +229,7 @@ def test_procesar_mensaje_conversacion_exitoso_y_persistido(session: Session):
 
     assert interaccion.estado == EstadoInteraccionIa.COMPLETADO
     assert interaccion.respuesta_ia == "Respuesta simulada"
-    assert interaccion.modelo_utilizado == "gemini-3.6-flash"
+    assert interaccion.modelo_utilizado == "gemini-3.1-flash-lite"
     assert fake_prov.invocaciones == 1
 
 
@@ -249,7 +249,7 @@ def test_caso_14_voz_y_texto_comparten_pipeline_y_estrategia(session: Session):
         )
     )
     assert interaccion_texto.tipo_interaccion.value == "texto" or str(interaccion_texto.tipo_interaccion) == "texto"
-    assert interaccion_texto.modelo_utilizado == "gemini-3.6-flash"
+    assert interaccion_texto.modelo_utilizado == "gemini-3.1-flash-lite"
 
     # Interacción de voz (procedente de audio transcrito)
     clave_voz = uuid4()
@@ -263,7 +263,7 @@ def test_caso_14_voz_y_texto_comparten_pipeline_y_estrategia(session: Session):
         )
     )
     assert interaccion_voz.tipo_interaccion.value == "audio" or str(interaccion_voz.tipo_interaccion) == "audio"
-    assert interaccion_voz.modelo_utilizado == "gemini-3.6-flash"
+    assert interaccion_voz.modelo_utilizado == "gemini-3.1-flash-lite"
     assert fake_prov.invocaciones == 2
 
 
@@ -287,7 +287,7 @@ def test_caso_15_metricas_estructuradas_y_telemetria(session: Session, caplog: p
     log_linea = registros[0]
     assert "contextLevel=" in log_linea
     assert "contextMs=" in log_linea
-    assert "model=gemini-3.6-flash" in log_linea
+    assert "model=gemini-3.1-flash-lite" in log_linea
     assert "attempts=1" in log_linea
     assert "fallback=False" in log_linea
     assert "breakerOpen=False" in log_linea
@@ -344,7 +344,7 @@ def test_procesar_mensaje_texto_vacio_falla_validacion(session: Session):
 
 def test_procesar_mensaje_fallo_ambos_modelos_deja_error_sin_mutaciones(session: Session):
     respuestas_fallidas = {
-        "gemini-3.6-flash": ProveedorIaRecuperableException("Timeout 504"),
+        "gemini-3.1-flash-lite": ProveedorIaRecuperableException("Timeout 504"),
         "gemini-3.5-flash-lite": ProveedorIaRecuperableException("503 Overloaded"),
     }
     use_case, usuario, diagrama, _, c_repo, _, _, _, i_repo = _crear_entorno(

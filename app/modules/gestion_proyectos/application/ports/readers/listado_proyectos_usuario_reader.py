@@ -18,6 +18,8 @@ class ItemProyectoUsuarioDTO:
     es_favorito: bool
     slug: str
     propietario_id: str = ""
+    es_dueno: bool = True
+
 
 
 class ListadoProyectosUsuarioReader(ABC):

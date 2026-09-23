@@ -98,7 +98,9 @@ class EliminarDiagramaUseCase:
             resultado = CierreCascadaResultado()
 
         self.diagrama_repository.eliminar(command.diagrama_id)
+        self.proyecto_repository.actualizar_fecha_actividad(command.proyecto_id)
         if confirmar:
             self.uow.commit()
         return resultado
+
 

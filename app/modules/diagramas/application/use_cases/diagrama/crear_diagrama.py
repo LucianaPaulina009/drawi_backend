@@ -48,5 +48,7 @@ class CrearDiagramaUseCase:
             nombre=command.nombre,
         )
         self.diagrama_repository.guardar(diagrama)
+        self.proyecto_repository.actualizar_fecha_actividad(command.proyecto_id)
         self.uow.commit()
         return diagrama
+

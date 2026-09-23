@@ -99,3 +99,65 @@ def test_resolver_relacion_univoce():
     res = ResolvedorReferenciasIa.resolver_relacion("Cliente", "Pedido", relaciones, clases)
     assert res.exito is True
     assert res.id == r_id
+
+
+def test_normalizar_cadena_comparacion():
+    assert ResolvedorReferenciasIa.normalizar_cadena_comparacion("Categoría") == "categoria"
+    assert ResolvedorReferenciasIa.normalizar_cadena_comparacion("ref producto") == "producto"
+    assert ResolvedorReferenciasIa.normalizar_cadena_comparacion("ref_producto") == "producto"
+    assert ResolvedorReferenciasIa.normalizar_cadena_comparacion("tb_usuario") == "usuario"
+    assert ResolvedorReferenciasIa.normalizar_cadena_comparacion("Vehículo-Pesado") == "vehiculo_pesado"
+
+
+def test_resolver_clase_por_alias_con_espacios_y_prefijo():
+    c_id = uuid4()
+    clases = [SimpleNamespace(id=c_id, nombre="Producto")]
+    mapa_alias = {
+        "ref_producto": c_id,
+        "producto": c_id,
+    }
+
+    # Gemini emits 'ref producto' (with space)
+    res = ResolvedorReferenciasIa.resolver_clase("ref producto", clases, mapa_alias=mapa_alias)
+    assert res.exito is True
+    assert res.id == c_id
+
+    # Gemini emits 'ref_producto'
+    res2 = ResolvedorReferenciasIa.resolver_clase("ref_producto", clases, mapa_alias=mapa_alias)
+    assert res2.exito is True
+    assert res2.id == c_id
+
+
+def test_resolver_clase_con_tildes():
+    c_id = uuid4()
+    clases = [SimpleNamespace(id=c_id, nombre="Categoría")]
+
+    # Query without tilde
+    res = ResolvedorReferenciasIa.resolver_clase("categoria", clases)
+    assert res.exito is True
+    assert res.id == c_id
+
+    # Query with prefix and without tilde
+    res2 = ResolvedorReferenciasIa.resolver_clase("ref_categoria", clases)
+    assert res2.exito is True
+    assert res2.id == c_id
+
+
+def test_resolver_atributo_con_tildes():
+    c_id = uuid4()
+    a_id = uuid4()
+    clases = [
+        SimpleNamespace(
+            id=c_id,
+            nombre="Vehículo",
+            atributos=[
+                SimpleNamespace(id=a_id, nombre="descripción"),
+            ],
+        )
+    ]
+
+    # Query without accents
+    res = ResolvedorReferenciasIa.resolver_atributo("vehiculo", "descripcion", clases)
+    assert res.exito is True
+    assert res.id == a_id
+

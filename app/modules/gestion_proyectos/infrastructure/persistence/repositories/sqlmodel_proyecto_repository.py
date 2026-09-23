@@ -92,3 +92,14 @@ class SQLModelProyectoRepository(ProyectoRepository):
         if registro:
             registro.eliminar_logicamente()
             self.bd.add(registro)
+
+    def actualizar_fecha_actividad(self, proyecto_id: UUID) -> None:
+        sentencia = select(ProyectoModel).where(
+            ProyectoModel.id == proyecto_id,
+            ProyectoModel.fecha_eliminacion.is_(None),
+        )
+        registro = self.bd.exec(sentencia).first()
+        if registro:
+            registro.fecha_actualizacion = ahora_utc()
+            self.bd.add(registro)
+

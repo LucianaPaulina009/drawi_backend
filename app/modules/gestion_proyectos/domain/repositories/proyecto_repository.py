@@ -36,3 +36,8 @@ class ProyectoRepository(ABC):
     @abstractmethod
     def eliminar(self, proyecto_id: UUID) -> None:
         """Marca la eliminación lógica del proyecto."""
+
+    @abstractmethod
+    def actualizar_fecha_actividad(self, proyecto_id: UUID) -> None:
+        """Actualiza la fecha de última actividad (fecha_actualizacion) del proyecto al momento actual."""
+

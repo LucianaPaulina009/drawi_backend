@@ -80,6 +80,10 @@ class FakeProyectoRepository(ProyectoRepository):
         if proyecto_id in self.proyectos:
             del self.proyectos[proyecto_id]
 
+    def actualizar_fecha_actividad(self, proyecto_id: UUID) -> None:
+        pass
+
+
 
 class FakeInvitacionRepository(InvitacionRepository):
     def __init__(self, invitaciones: list[Invitacion] = None):

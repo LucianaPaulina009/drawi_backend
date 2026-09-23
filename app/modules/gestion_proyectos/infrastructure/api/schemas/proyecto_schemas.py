@@ -50,6 +50,8 @@ class ProyectoRead(BaseModel):
     es_favorito: bool
     slug: str
     propietario_id: str
+    es_dueno: bool = True
+
 
 
 class ListaProyectosRead(BaseModel):

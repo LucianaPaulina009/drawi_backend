@@ -20,14 +20,13 @@ logger = logging.getLogger(__name__)
 
 # Cascada de modelos Gemini ordenados por balance de inteligencia, velocidad y resiliencia
 MODELOS_GEMINI_ORDENADOS: Final[tuple[str, ...]] = (
-    "gemini-3.6-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
+    "gemini-3.6-flash",
     "gemini-3.7-flash",
     "gemini-3.8-flash",
-    "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
     "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
 )
 
 
@@ -93,6 +92,15 @@ class EstrategiaModelosGemini:
             if retry_backoff_ms is not None
             else settings.IA_GEMINI_RETRY_BACKOFF_MS
         )
+        self._ultimo_modelo_usado: str = ""
+
+    @property
+    def modelo_primario(self) -> str:
+        return self.modelos[0] if self.modelos else settings.IA_GEMINI_PRIMARY_MODEL
+
+    @property
+    def ultimo_modelo_usado(self) -> str:
+        return self._ultimo_modelo_usado or self.modelo_primario
 
     def _evaluar_estado_breaker(self, modelo: str) -> tuple[CircuitState, bool]:
         """Devuelve el estado actual del breaker y si está abierto bloqueando peticiones."""
@@ -169,6 +177,7 @@ class EstrategiaModelosGemini:
                     temperatura=temperatura,
                 )
                 duracion_ms = (time.monotonic() - inicio_total) * 1000.0
+                self._ultimo_modelo_usado = modelo
                 self._registrar_exito(modelo)
                 return ResultadoProveedorIa(
                     texto_respuesta=resultado.texto_respuesta,
@@ -222,6 +231,7 @@ class EstrategiaModelosGemini:
                     mime_type=mime_type,
                     idioma=idioma,
                 )
+                self._ultimo_modelo_usado = modelo
                 self._registrar_exito(modelo)
                 return texto
             except ProveedorIaRecuperableException as err:
@@ -267,6 +277,7 @@ class EstrategiaModelosGemini:
                     mime_type=mime_type,
                     prompt_estructural=prompt_estructural,
                 )
+                self._ultimo_modelo_usado = modelo
                 self._registrar_exito(modelo)
                 return json_str
             except ProveedorIaRecuperableException as err:

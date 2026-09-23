@@ -67,6 +67,10 @@ class FakeProyectoRepository(ProyectoRepository):
         if proyecto_id in self.proyectos:
             del self.proyectos[proyecto_id]
 
+    def actualizar_fecha_actividad(self, proyecto_id: UUID) -> None:
+        pass
+
+
 
 def test_actualizar_solo_color_e_icono():
     proyecto = Proyecto.crear(propietario_id="usr-1", numero=0)

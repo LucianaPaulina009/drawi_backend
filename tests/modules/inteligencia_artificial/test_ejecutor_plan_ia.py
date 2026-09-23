@@ -422,5 +422,47 @@ def test_ejecutor_plan_ia_crear_multiples_clases_sin_solapamiento(session: Sessi
             assert not b1.intersecta(b2, margen=20.0), f"Colisión entre {nombre_1} ({b1}) y {nombre_2} ({b2})"
 
 
+def test_ejecutor_plan_ia_resuelve_referencias_con_prefijos_y_espacios(session: Session):
+    usuario = BetterAuthUser(id="user-ref-norm", name="RefNorm", email="refnorm@drawi.com", email_verified=True)
+    session.add(usuario)
+    session.commit()
+
+    proyecto = ProyectoModel(propietario_id=usuario.id, nombre="Proy RefNorm", color="azul", icono="caja", slug="proy-refnorm")
+    session.add(proyecto)
+    session.commit()
+
+    diagrama = DiagramaModel(id_proyecto=proyecto.id, nombre="Diagrama RefNorm", numero=1)
+    session.add(diagrama)
+    session.commit()
+
+    ejecutor, c_repo, a_repo, r_repo, _ = _setup_repos(session)
+
+    # Note: Class references are "ref_prod" and "ref_cat", but relation references "ref producto" and "categoría"
+    acciones = [
+        AccionCrearClaseSchema(referencia="ref_prod", nombre="Producto"),
+        AccionCrearClaseSchema(referencia="ref_cat", nombre="Categoría"),
+        AccionCrearRelacionSchema(
+            clase_origen_referencia="ref producto",
+            clase_destino_referencia="categoría",
+            tipo_relacion="asociacion",
+            nombre="pertenece_a",
+        ),
+    ]
+
+    resultados = ejecutor.ejecutar_plan(
+        usuario_id=usuario.id,
+        diagrama_id=diagrama.id,
+        acciones=acciones,
+    )
+
+    assert len(resultados) == 3
+    assert all(r["estado"] == "completado" for r in resultados), f"Resultados: {resultados}"
+
+    rels = r_repo.listar_por_diagrama(diagrama.id)
+    assert len(rels) == 1
+    assert rels[0].nombre == "pertenece_a"
+
+
+
 
 

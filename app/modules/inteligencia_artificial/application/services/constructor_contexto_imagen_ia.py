@@ -15,17 +15,17 @@ PROMPT_RECONOCIMIENTO_UML_IMAGEN: Final[str] = (
     "Tu tarea es analizar la imagen proporcionada y extraer la estructura completa de un "
     "DIAGRAMA DE CLASES UML ORIENTADO A BASES DE DATOS RELACIONALES.\n\n"
     "REGLAS OBLIGATORIAS:\n"
-    "1. Extrae todas las clases/tablas visibles, asignando a cada una una 'referencia_semantica' única (ej: 'ref_1', 'ref_2', etc.) y su 'nombre'.\n"
+    "1. Extrae todas las clases/tablas visibles, asignando a cada una una 'referencia_semantica' única (ej: 'ref_1', 'ref_2', etc.) y su 'nombre'. Usa esa misma 'referencia_semantica' de forma estricta y consistente en 'origen_ref' y 'destino_ref' de las relaciones.\n"
     "2. Para cada clase, extrae sus atributos con:\n"
     "   - 'nombre': nombre exacto del atributo/campo.\n"
     "   - 'tipo_detectado': tipo normalizado (uno de: 'varchar', 'integer', 'bigint', 'decimal', 'boolean', 'date', 'timestamp', 'text'). Si no es visible, usa 'varchar'.\n"
-    "   - 'es_pk': true si tiene indicador PK, llave, subrayado o estereotipo <<PK>>.\n"
+    "   - 'es_pk': true si tiene indicador PK, llave, subrayado o estereotipo <<PK>> (en DRAWI, toda clase recibe automáticamente su llave primaria 'id').\n"
     "   - 'es_fk': true si tiene indicador FK, estereotipo <<FK>> o representa explícitamente una llave foránea.\n"
-    "   - 'fk_destino_ref': referencia_semantica o nombre de la clase a la que apunta la FK si es visible o deducible (opcional, ej: 'ref_1' o 'Cliente').\n"
+    "   - 'fk_destino_ref': referencia_semantica de la clase a la que apunta la FK si es deducible (opcional, ej: 'ref_1').\n"
     "   - 'permite_nulo': true si tiene indicador NULL o '?' o '0..1'.\n"
     "3. Para cada relación visible, extrae:\n"
-    "   - 'origen_ref': referencia_semantica de la clase de origen.\n"
-    "   - 'destino_ref': referencia_semantica de la clase de destino.\n"
+    "   - 'origen_ref': referencia_semantica exacta de la clase de origen (debe coincidir con la 'referencia_semantica' de una de las clases declaradas en 'clases').\n"
+    "   - 'destino_ref': referencia_semantica exacta de la clase de destino (debe coincidir con la 'referencia_semantica' de una de las clases declaradas en 'clases').\n"
     "   - 'tipo': tipo de relación UML (uno de: 'asociacion', 'asociacion_dirigida', 'agregacion', 'composicion', 'herencia', 'realizacion', 'dependencia'). Por defecto: 'asociacion'.\n"
     "   - 'cardinalidad_origen': cardinalidad en el origen (ej: '1', '0..1', '1..*', '0..*').\n"
     "   - 'cardinalidad_destino': cardinalidad en el destino (ej: '1', '0..1', '1..*', '0..*').\n"
@@ -50,7 +50,7 @@ PROMPT_RECONOCIMIENTO_UML_IMAGEN: Final[str] = (
     '      "nombre": "NombreClase",\n'
     '      "atributos": [\n'
     '        {"nombre": "id", "tipo_detectado": "integer", "es_pk": true, "es_fk": false, "permite_nulo": false},\n'
-    '        {"nombre": "cliente_id", "tipo_detectado": "integer", "es_pk": false, "es_fk": true, "fk_destino_ref": "ref_cliente", "permite_nulo": false}\n'
+    '        {"nombre": "cliente_id", "tipo_detectado": "integer", "es_pk": false, "es_fk": true, "fk_destino_ref": "ref_2", "permite_nulo": false}\n'
     '      ],\n'
     '      "posicion_relativa_x": 0.2,\n'
     '      "posicion_relativa_y": 0.3\n'

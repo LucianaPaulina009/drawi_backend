@@ -14,6 +14,9 @@ from app.modules.inteligencia_artificial.application.schemas.diagrama_reconocido
     DiagramaReconocidoIa,
     RelacionReconocidaIa,
 )
+from app.modules.inteligencia_artificial.application.services.resolvedor_referencias_ia import (
+    ResolvedorReferenciasIa,
+)
 from app.modules.inteligencia_artificial.application.services.validador_respuesta_ia import (
     AccionCrearAtributoSchema,
     AccionCrearClaseSchema,
@@ -409,21 +412,31 @@ class PlanificadorImportacionImagen:
 
         name_c = clase_c.nombre.lower().replace("-", "_").replace(" ", "_")
         name_a = cls.normalizar_nombre_base(clase_a.nombre).replace("-", "_").replace(" ", "_")
-        name_b = cls.normalizar_nombre_base(clase_b.nombre).replace("-", "_").replace(" ", "_")
-
-        # Exigencia estructural: debe tener al menos una FK a los extremos o un nombre compuesto
-        tiene_fk = (attr_a is not None) or (attr_b is not None)
-        nombre_compuesto = (name_a in name_c and name_b in name_c) or (
-            "_" in name_c and (name_a in name_c or name_b in name_c)
-        )
-        if not tiene_fk and not nombre_compuesto:
-            return False, 0, None, None
-
         # Se exige evidencia estructural mínima hacia AMBOS lados
         if score_a < 3 or score_b < 3:
             return False, 0, None, None
 
         if attr_a is not None and attr_b is not None and attr_a.nombre.strip().lower() == attr_b.nombre.strip().lower():
+            return False, 0, None, None
+
+        name_c = clase_c.nombre.lower().replace("-", "_").replace(" ", "_")
+        name_a = cls.normalizar_nombre_base(clase_a.nombre).replace("-", "_").replace(" ", "_")
+        name_b = cls.normalizar_nombre_base(clase_b.nombre).replace("-", "_").replace(" ", "_")
+
+        # Exigencia estructural estricta: Una tabla asociativa N:M DEBE enlazar ambos extremos.
+        # Debe cumplir al menos una de las siguientes condiciones:
+        # 1. Poseer FKs hacia AMBOS extremos (attr_a y attr_b presentes)
+        # 2. Tener nombre compuesto con ambas entidades (name_a in name_c y name_b in name_c)
+        # 3. Tener nombre compuesto con una entidad Y poseer FK hacia la otra entidad
+        tiene_fks_ambos = (attr_a is not None and attr_b is not None)
+        nombre_compuesto_ambos = (name_a in name_c and name_b in name_c)
+        nombre_compuesto_cruzado = (
+            (name_a in name_c and attr_b is not None)
+            or (name_b in name_c and attr_a is not None)
+            or ("_" in name_c and (name_a in name_c or name_b in name_c) and (attr_a is not None or attr_b is not None))
+        )
+
+        if not (tiene_fks_ambos or nombre_compuesto_ambos or nombre_compuesto_cruzado):
             return False, 0, None, None
 
         score_pos = 0
@@ -451,6 +464,33 @@ class PlanificadorImportacionImagen:
         return True, total_score, attr_a, attr_b
 
     @classmethod
+    def buscar_clase_reconocida(
+        cls,
+        ref: str | None,
+        clases_reconocidas: Sequence[ClaseReconocidaIa],
+        clases_reconocidas_map: dict[str, ClaseReconocidaIa],
+    ) -> ClaseReconocidaIa | None:
+        if not ref:
+            return None
+        r_str = ref.strip()
+        r_low = r_str.lower()
+        if r_low in clases_reconocidas_map:
+            return clases_reconocidas_map[r_low]
+
+        r_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(r_str)
+        if r_norm in clases_reconocidas_map:
+            return clases_reconocidas_map[r_norm]
+
+        for c in clases_reconocidas:
+            if (
+                ResolvedorReferenciasIa.normalizar_cadena_comparacion(c.referencia_semantica) == r_norm
+                or ResolvedorReferenciasIa.normalizar_cadena_comparacion(c.nombre) == r_norm
+            ):
+                return c
+
+        return None
+
+    @classmethod
     def construir_plan(
         cls,
         diagrama_reconocido: DiagramaReconocidoIa,
@@ -465,18 +505,35 @@ class PlanificadorImportacionImagen:
         )
 
         # Mapa de clases existentes por nombre normalizado y por id
-        mapa_existentes_por_nombre: dict[str, Any] = {
-            c.nombre.strip().lower(): c for c in clases_existentes_lista
-        }
+        mapa_existentes_por_nombre: dict[str, Any] = {}
+        for c in clases_existentes_lista:
+            c_nom = c.nombre.strip().lower()
+            mapa_existentes_por_nombre[c_nom] = c
+            c_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(c_nom)
+            if c_norm:
+                mapa_existentes_por_nombre[c_norm] = c
+
         mapa_existentes_por_id: dict[UUID, Any] = {
             c.id: c for c in clases_existentes_lista
         }
 
-        # Indexar clases reconocidas por referencia semántica y por nombre
+        # Indexar clases reconocidas por referencia semántica y por nombre (exacto y normalizado)
         clases_reconocidas_map: dict[str, ClaseReconocidaIa] = {}
         for c in diagrama_reconocido.clases:
-            clases_reconocidas_map[c.referencia_semantica.strip().lower()] = c
-            clases_reconocidas_map[c.nombre.strip().lower()] = c
+            ref_low = c.referencia_semantica.strip().lower()
+            nom_low = c.nombre.strip().lower()
+            clases_reconocidas_map[ref_low] = c
+            clases_reconocidas_map[nom_low] = c
+            ref_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(ref_low)
+            nom_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(nom_low)
+            if ref_norm:
+                clases_reconocidas_map[ref_norm] = c
+                clases_reconocidas_map[f"ref_{ref_norm}"] = c
+                clases_reconocidas_map[f"ref {ref_norm}"] = c
+            if nom_norm:
+                clases_reconocidas_map[nom_norm] = c
+                clases_reconocidas_map[f"ref_{nom_norm}"] = c
+                clases_reconocidas_map[f"ref {nom_norm}"] = c
 
         # Mapear relaciones y N:M existentes en el diagrama para evitar duplicados
         relaciones_existentes_set: set[tuple[UUID, UUID, str]] = set()
@@ -509,8 +566,13 @@ class PlanificadorImportacionImagen:
         for rel_idx, rel in enumerate(diagrama_reconocido.relaciones):
             orig_ref = rel.origen_ref.strip()
             dest_ref = rel.destino_ref.strip()
-            orig_obj = clases_reconocidas_map.get(orig_ref.lower())
-            dest_obj = clases_reconocidas_map.get(dest_ref.lower())
+            orig_obj = cls.buscar_clase_reconocida(orig_ref, diagrama_reconocido.clases, clases_reconocidas_map)
+            dest_obj = cls.buscar_clase_reconocida(dest_ref, diagrama_reconocido.clases, clases_reconocidas_map)
+
+            if orig_obj:
+                orig_ref = orig_obj.referencia_semantica
+            if dest_obj:
+                dest_ref = dest_obj.referencia_semantica
 
             orig_nombre = (orig_obj.nombre if orig_obj else orig_ref).strip().lower()
             dest_nombre = (dest_obj.nombre if dest_obj else dest_ref).strip().lower()
@@ -584,6 +646,14 @@ class PlanificadorImportacionImagen:
                     candidatos.append((c_cand, score_cand, attr_a, attr_b))
 
             if len(candidatos) == 0:
+                orig_existe = bool(orig_obj or orig_nombre in mapa_existentes_por_nombre)
+                dest_existe = bool(dest_obj or dest_nombre in mapa_existentes_por_nombre)
+                if not orig_existe or not dest_existe:
+                    nom_nm = rel.nombre or f"{orig_ref} <-> {dest_ref}"
+                    plan.advertencias.append(
+                        f"Estructura N:M '{nom_nm}' omitida: clase de origen o destino no encontrada en el diagrama."
+                    )
+                    continue
                 accion_nm = AccionCrearEstructuraNmSchema(
                     clase_origen_referencia=orig_ref,
                     clase_destino_referencia=dest_ref,
@@ -592,9 +662,31 @@ class PlanificadorImportacionImagen:
                 acciones_nm.append(accion_nm)
             elif len(candidatos) == 1:
                 c_sel, score_sel, attr_a_sel, attr_b_sel = candidatos[0]
-                clases_intermedias_nm_asignadas[c_sel.referencia_semantica.lower()] = (
-                    rel, attr_a_sel, attr_b_sel, c_sel, orig_obj, dest_obj
-                )
+                inter_entry = (rel, attr_a_sel, attr_b_sel, c_sel, orig_obj, dest_obj)
+                clases_intermedias_nm_asignadas[c_sel.referencia_semantica.lower()] = inter_entry
+                clases_intermedias_nm_asignadas[c_sel.nombre.strip().lower()] = inter_entry
+                c_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(c_sel.referencia_semantica)
+                if c_norm:
+                    clases_intermedias_nm_asignadas[c_norm] = inter_entry
+                    clases_intermedias_nm_asignadas[f"ref_{c_norm}"] = inter_entry
+                    clases_intermedias_nm_asignadas[f"ref {c_norm}"] = inter_entry
+                nom_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(c_sel.nombre)
+                if nom_norm:
+                    clases_intermedias_nm_asignadas[nom_norm] = inter_entry
+                    clases_intermedias_nm_asignadas[f"ref_{nom_norm}"] = inter_entry
+                    clases_intermedias_nm_asignadas[f"ref {nom_norm}"] = inter_entry
+
+                tokens_inter = {c_sel.referencia_semantica.lower(), c_sel.nombre.strip().lower(), c_norm, nom_norm} - {None, ""}
+                tokens_orig = {orig_obj.referencia_semantica.lower(), orig_obj.nombre.strip().lower()}
+                tokens_dest = {dest_obj.referencia_semantica.lower(), dest_obj.nombre.strip().lower()}
+                for r_i, r_item in enumerate(diagrama_reconocido.relaciones):
+                    ro = r_item.origen_ref.strip().lower()
+                    rd = r_item.destino_ref.strip().lower()
+                    if (ro in tokens_inter and rd in tokens_orig) or (ro in tokens_orig and rd in tokens_inter):
+                        relaciones_a_omitir.add(r_i)
+                    elif (ro in tokens_inter and rd in tokens_dest) or (ro in tokens_dest and rd in tokens_inter):
+                        relaciones_a_omitir.add(r_i)
+
                 pos_x, pos_y = posiciones_layout.get(c_sel.referencia_semantica, (200, 200))
                 accion_nm = AccionCrearEstructuraNmSchema(
                     clase_origen_referencia=orig_ref,
@@ -623,9 +715,31 @@ class PlanificadorImportacionImagen:
                     acciones_nm.append(accion_nm)
                 else:
                     c_sel, score_sel, attr_a_sel, attr_b_sel = candidatos[0]
-                    clases_intermedias_nm_asignadas[c_sel.referencia_semantica.lower()] = (
-                        rel, attr_a_sel, attr_b_sel, c_sel, orig_obj, dest_obj
-                    )
+                    inter_entry = (rel, attr_a_sel, attr_b_sel, c_sel, orig_obj, dest_obj)
+                    clases_intermedias_nm_asignadas[c_sel.referencia_semantica.lower()] = inter_entry
+                    clases_intermedias_nm_asignadas[c_sel.nombre.strip().lower()] = inter_entry
+                    c_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(c_sel.referencia_semantica)
+                    if c_norm:
+                        clases_intermedias_nm_asignadas[c_norm] = inter_entry
+                        clases_intermedias_nm_asignadas[f"ref_{c_norm}"] = inter_entry
+                        clases_intermedias_nm_asignadas[f"ref {c_norm}"] = inter_entry
+                    nom_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(c_sel.nombre)
+                    if nom_norm:
+                        clases_intermedias_nm_asignadas[nom_norm] = inter_entry
+                        clases_intermedias_nm_asignadas[f"ref_{nom_norm}"] = inter_entry
+                        clases_intermedias_nm_asignadas[f"ref {nom_norm}"] = inter_entry
+
+                    tokens_inter = {c_sel.referencia_semantica.lower(), c_sel.nombre.strip().lower(), c_norm, nom_norm} - {None, ""}
+                    tokens_orig = {orig_obj.referencia_semantica.lower(), orig_obj.nombre.strip().lower()}
+                    tokens_dest = {dest_obj.referencia_semantica.lower(), dest_obj.nombre.strip().lower()}
+                    for r_i, r_item in enumerate(diagrama_reconocido.relaciones):
+                        ro = r_item.origen_ref.strip().lower()
+                        rd = r_item.destino_ref.strip().lower()
+                        if (ro in tokens_inter and rd in tokens_orig) or (ro in tokens_orig and rd in tokens_inter):
+                            relaciones_a_omitir.add(r_i)
+                        elif (ro in tokens_inter and rd in tokens_dest) or (ro in tokens_dest and rd in tokens_inter):
+                            relaciones_a_omitir.add(r_i)
+
                     pos_x, pos_y = posiciones_layout.get(c_sel.referencia_semantica, (200, 200))
                     accion_nm = AccionCrearEstructuraNmSchema(
                         clase_origen_referencia=orig_ref,
@@ -663,9 +777,31 @@ class PlanificadorImportacionImagen:
 
                 if par_k not in pares_nm_procesados and par_k_inv not in pares_nm_procesados:
                     pares_nm_procesados.add(par_k)
-                    clases_intermedias_nm_asignadas[c_cand.referencia_semantica.lower()] = (
-                        None, attr_a, attr_b, c_cand, cl_a, cl_b
-                    )
+                    inter_entry = (None, attr_a, attr_b, c_cand, cl_a, cl_b)
+                    clases_intermedias_nm_asignadas[c_cand.referencia_semantica.lower()] = inter_entry
+                    clases_intermedias_nm_asignadas[c_cand.nombre.strip().lower()] = inter_entry
+                    c_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(c_cand.referencia_semantica)
+                    if c_norm:
+                        clases_intermedias_nm_asignadas[c_norm] = inter_entry
+                        clases_intermedias_nm_asignadas[f"ref_{c_norm}"] = inter_entry
+                        clases_intermedias_nm_asignadas[f"ref {c_norm}"] = inter_entry
+                    nom_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(c_cand.nombre)
+                    if nom_norm:
+                        clases_intermedias_nm_asignadas[nom_norm] = inter_entry
+                        clases_intermedias_nm_asignadas[f"ref_{nom_norm}"] = inter_entry
+                        clases_intermedias_nm_asignadas[f"ref {nom_norm}"] = inter_entry
+
+                    tokens_inter = {c_cand.referencia_semantica.lower(), c_cand.nombre.strip().lower(), c_norm, nom_norm} - {None, ""}
+                    tokens_a = {cl_a.referencia_semantica.lower(), cl_a.nombre.strip().lower()}
+                    tokens_b = {cl_b.referencia_semantica.lower(), cl_b.nombre.strip().lower()}
+                    for r_i, r_item in enumerate(diagrama_reconocido.relaciones):
+                        ro = r_item.origen_ref.strip().lower()
+                        rd = r_item.destino_ref.strip().lower()
+                        if (ro in tokens_inter and rd in tokens_a) or (ro in tokens_a and rd in tokens_inter):
+                            relaciones_a_omitir.add(r_i)
+                        elif (ro in tokens_inter and rd in tokens_b) or (ro in tokens_b and rd in tokens_inter):
+                            relaciones_a_omitir.add(r_i)
+
                     pos_x, pos_y = posiciones_layout.get(c_cand.referencia_semantica, (200, 200))
                     accion_nm = AccionCrearEstructuraNmSchema(
                         clase_origen_referencia=cl_a.referencia_semantica,
@@ -726,11 +862,37 @@ class PlanificadorImportacionImagen:
             if orig_ref.lower() in clases_intermedias_nm_asignadas or dest_ref.lower() in clases_intermedias_nm_asignadas:
                 continue
 
-            orig_obj = clases_reconocidas_map.get(orig_ref.lower())
-            dest_obj = clases_reconocidas_map.get(dest_ref.lower())
+            orig_obj = cls.buscar_clase_reconocida(orig_ref, diagrama_reconocido.clases, clases_reconocidas_map)
+            dest_obj = cls.buscar_clase_reconocida(dest_ref, diagrama_reconocido.clases, clases_reconocidas_map)
+
+            if orig_obj:
+                orig_ref = orig_obj.referencia_semantica
+            if dest_obj:
+                dest_ref = dest_obj.referencia_semantica
 
             orig_nombre = (orig_obj.nombre if orig_obj else orig_ref).strip().lower()
             dest_nombre = (dest_obj.nombre if dest_obj else dest_ref).strip().lower()
+
+            orig_existe = bool(
+                orig_obj
+                or orig_nombre in mapa_existentes_por_nombre
+                or plan.clases_existentes_mapeo.get(orig_nombre)
+                or plan.clases_existentes_mapeo.get(orig_ref.lower())
+            )
+            dest_existe = bool(
+                dest_obj
+                or dest_nombre in mapa_existentes_por_nombre
+                or plan.clases_existentes_mapeo.get(dest_nombre)
+                or plan.clases_existentes_mapeo.get(dest_ref.lower())
+            )
+
+            if not orig_existe or not dest_existe:
+                relaciones_a_omitir.add(rel_idx)
+                nom_rel = rel.nombre or f"{orig_ref} -> {dest_ref}"
+                plan.advertencias.append(
+                    f"Relación '{nom_rel}' omitida: la clase de origen o destino no fue encontrada en el diagrama."
+                )
+                continue
 
             par_nm = (orig_nombre, dest_nombre)
             par_nm_inv = (dest_nombre, orig_nombre)

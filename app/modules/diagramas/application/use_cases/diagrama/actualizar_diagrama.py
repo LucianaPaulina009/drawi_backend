@@ -46,8 +46,10 @@ class ActualizarDiagramaUseCase:
             raise DiagramaNoEncontradoException()
         diagrama.actualizar(nombre=command.nombre)
         self.diagrama_repository.guardar(diagrama)
+        self.proyecto_repository.actualizar_fecha_actividad(command.proyecto_id)
         self.uow.commit()
         return diagrama
+
 
     def _validar_proyecto(self, proyecto_id: UUID, propietario_id: str) -> None:
         proyecto = self.proyecto_repository.obtener_por_id(proyecto_id)

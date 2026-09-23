@@ -4,6 +4,9 @@ import re
 from typing import Any
 from uuid import UUID
 
+from app.modules.inteligencia_artificial.application.services.resolvedor_referencias_ia import (
+    ResolvedorReferenciasIa,
+)
 from app.modules.inteligencia_artificial.application.services.validador_respuesta_ia import (
     AccionActualizarAtributoSchema,
     AccionActualizarClaseSchema,
@@ -142,6 +145,29 @@ class PlanificadorAccionesIa:
         return c in {"*", "0..*", "1..*", "n", "m", "0..n", "1..n", "0..m", "1..m"}
 
     @classmethod
+    def resolver_clase_disponible(
+        cls,
+        ref: str | None,
+        clases_disponibles: dict[str, str | UUID],
+    ) -> str | UUID | None:
+        if not ref:
+            return None
+        r_str = ref.strip()
+        r_low = r_str.lower()
+        if r_low in clases_disponibles:
+            return clases_disponibles[r_low]
+
+        r_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(r_str)
+        if r_norm in clases_disponibles:
+            return clases_disponibles[r_norm]
+
+        for k, v in clases_disponibles.items():
+            if ResolvedorReferenciasIa.normalizar_cadena_comparacion(k) == r_norm:
+                return v
+
+        return None
+
+    @classmethod
     def planificar(
         cls,
         acciones: list[AccionIaUnion],
@@ -150,12 +176,25 @@ class PlanificadorAccionesIa:
         clases_disponibles: dict[str, str | UUID] = {}
         mapa_nombres_clases: dict[str, str] = {}
 
+        def registrar_disponible(clave: str, valor: str | UUID, nombre_real: str) -> None:
+            c_low = clave.strip().lower()
+            clases_disponibles[c_low] = valor
+            mapa_nombres_clases[c_low] = nombre_real
+            c_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(clave)
+            if c_norm:
+                clases_disponibles[c_norm] = valor
+                clases_disponibles[f"ref_{c_norm}"] = valor
+                clases_disponibles[f"ref {c_norm}"] = valor
+                clases_disponibles[c_norm.replace("_", " ")] = valor
+                clases_disponibles[c_norm.replace(" ", "_")] = valor
+                mapa_nombres_clases[c_norm] = nombre_real
+                mapa_nombres_clases[f"ref_{c_norm}"] = nombre_real
+                mapa_nombres_clases[f"ref {c_norm}"] = nombre_real
+
         if clases_existentes:
             for clave, uid in clases_existentes.items():
-                clave_norm = clave.strip().lower()
-                clases_disponibles[clave_norm] = uid
+                registrar_disponible(clave, uid, clave.strip())
                 clases_disponibles[str(uid).lower()] = uid
-                mapa_nombres_clases[clave_norm] = clave.strip()
                 mapa_nombres_clases[str(uid).lower()] = clave.strip()
 
         # 1. Agrupar creaciones para ordenarlas según dependencias estructurales
@@ -175,12 +214,16 @@ class PlanificadorAccionesIa:
                 ref = accion.referencia.strip().lower()
                 if not ref:
                     raise PlanIaInvalidoException("La referencia de la clase no puede estar vacía.")
-                clases_disponibles[ref] = ref
-                clases_disponibles[accion.nombre.strip().lower()] = ref
-                mapa_nombres_clases[ref] = accion.nombre.strip()
-                mapa_nombres_clases[accion.nombre.strip().lower()] = accion.nombre.strip()
+                registrar_disponible(ref, ref, accion.nombre.strip())
+                registrar_disponible(accion.nombre, ref, accion.nombre.strip())
                 alias_clases_base.add(ref)
                 alias_clases_base.add(accion.nombre.strip().lower())
+                c_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(ref)
+                if c_norm:
+                    alias_clases_base.add(c_norm)
+                nom_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(accion.nombre)
+                if nom_norm:
+                    alias_clases_base.add(nom_norm)
                 acciones_crear_clases.append(accion)
             elif isinstance(accion, AccionCrearEstructuraNmSchema):
                 orig_ref = accion.clase_origen_referencia.strip()
@@ -191,19 +234,17 @@ class PlanificadorAccionesIa:
                 nombre_inter = accion.nombre_intermedia.strip() if accion.nombre_intermedia else f"{orig_name}_{dest_name}"
                 ref_inter = accion.referencia_intermedia.strip().lower() if accion.referencia_intermedia else nombre_inter.lower()
 
-                clases_disponibles[ref_inter] = ref_inter
-                clases_disponibles[nombre_inter.lower()] = ref_inter
-                mapa_nombres_clases[ref_inter] = nombre_inter
-                mapa_nombres_clases[nombre_inter.lower()] = nombre_inter
+                registrar_disponible(ref_inter, ref_inter, nombre_inter)
+                registrar_disponible(nombre_inter, ref_inter, nombre_inter)
 
                 default_name = f"{orig_ref}_{dest_ref}".lower()
-                clases_disponibles[default_name] = default_name
-                clases_disponibles[f"{dest_ref}_{orig_ref}".lower()] = default_name
-                clases_disponibles[f"{orig_ref}{dest_ref}".lower()] = default_name
-                clases_disponibles[f"{dest_ref}{orig_ref}".lower()] = default_name
-                clases_disponibles["intermedia"] = default_name
-                clases_disponibles["tabla intermedia"] = default_name
-                clases_disponibles["tabla de muchos a muchos"] = default_name
+                registrar_disponible(default_name, default_name, nombre_inter)
+                registrar_disponible(f"{dest_ref}_{orig_ref}".lower(), default_name, nombre_inter)
+                registrar_disponible(f"{orig_ref}{dest_ref}".lower(), default_name, nombre_inter)
+                registrar_disponible(f"{dest_ref}{orig_ref}".lower(), default_name, nombre_inter)
+                registrar_disponible("intermedia", default_name, nombre_inter)
+                registrar_disponible("tabla intermedia", default_name, nombre_inter)
+                registrar_disponible("tabla de muchos a muchos", default_name, nombre_inter)
 
                 alias_clases_intermedias.add(ref_inter)
                 alias_clases_intermedias.add(nombre_inter.lower())
@@ -234,26 +275,22 @@ class PlanificadorAccionesIa:
 
         # Validar dependencias de estructuras N:M a crear
         for struct in acciones_crear_estructuras_nm:
-            origen = struct.clase_origen_referencia.strip().lower()
-            destino = struct.clase_destino_referencia.strip().lower()
-            if origen not in clases_disponibles:
+            if not cls.resolver_clase_disponible(struct.clase_origen_referencia, clases_disponibles):
                 raise PlanIaInvalidoException(
                     f"La estructura N:M referencia un origen desconocido: '{struct.clase_origen_referencia}'."
                 )
-            if destino not in clases_disponibles:
+            if not cls.resolver_clase_disponible(struct.clase_destino_referencia, clases_disponibles):
                 raise PlanIaInvalidoException(
                     f"La estructura N:M referencia un destino desconocido: '{struct.clase_destino_referencia}'."
                 )
 
         # Validar dependencias de relaciones a crear
         for rel in acciones_crear_relaciones:
-            origen = rel.clase_origen_referencia.strip().lower()
-            destino = rel.clase_destino_referencia.strip().lower()
-            if origen not in clases_disponibles:
+            if not cls.resolver_clase_disponible(rel.clase_origen_referencia, clases_disponibles):
                 raise PlanIaInvalidoException(
                     f"La relación '{rel.nombre or 'rel'}' referencia un origen desconocido: '{rel.clase_origen_referencia}'."
                 )
-            if destino not in clases_disponibles:
+            if not cls.resolver_clase_disponible(rel.clase_destino_referencia, clases_disponibles):
                 raise PlanIaInvalidoException(
                     f"La relación '{rel.nombre or 'rel'}' referencia un destino desconocido: '{rel.clase_destino_referencia}'."
                 )
@@ -310,12 +347,12 @@ class PlanificadorAccionesIa:
         atributos_clases_intermedias: list[AccionCrearAtributoSchema] = []
 
         for attr in acciones_crear_atributos:
-            ref = attr.clase_referencia.strip().lower()
-            if ref not in clases_disponibles:
+            if not cls.resolver_clase_disponible(attr.clase_referencia, clases_disponibles):
                 raise PlanIaInvalidoException(
                     f"El atributo '{attr.nombre}' referencia una clase desconocida: '{attr.clase_referencia}'."
                 )
 
+            ref = attr.clase_referencia.strip().lower()
             nombre_clase = mapa_nombres_clases.get(ref, attr.clase_referencia)
             attr_limpio = cls.limpiar_nombre_atributo(attr.nombre)
             attr_norm = attr_limpio.lower()
@@ -365,19 +402,15 @@ class PlanificadorAccionesIa:
         # Validar referencias de otras acciones
         for act in otras_acciones:
             if isinstance(act, (AccionActualizarClaseSchema, AccionEliminarClaseSchema)):
-                ref = act.clase_referencia.strip().lower()
-                if ref not in clases_disponibles:
+                if not cls.resolver_clase_disponible(act.clase_referencia, clases_disponibles):
                     raise PlanIaInvalidoException(f"La acción referencia una clase desconocida: '{act.clase_referencia}'.")
             elif isinstance(act, (AccionActualizarAtributoSchema, AccionEliminarAtributoSchema)):
-                ref = act.clase_referencia.strip().lower()
-                if ref not in clases_disponibles:
+                if not cls.resolver_clase_disponible(act.clase_referencia, clases_disponibles):
                     raise PlanIaInvalidoException(f"La acción de atributo referencia una clase desconocida: '{act.clase_referencia}'.")
             elif isinstance(act, (AccionActualizarRelacionSchema, AccionEliminarRelacionSchema, AccionEliminarEstructuraNmSchema)):
-                origen = act.clase_origen_referencia.strip().lower()
-                destino = act.clase_destino_referencia.strip().lower()
-                if origen not in clases_disponibles:
+                if not cls.resolver_clase_disponible(act.clase_origen_referencia, clases_disponibles):
                     raise PlanIaInvalidoException(f"La relación referencia un origen desconocido: '{act.clase_origen_referencia}'.")
-                if destino not in clases_disponibles:
+                if not cls.resolver_clase_disponible(act.clase_destino_referencia, clases_disponibles):
                     raise PlanIaInvalidoException(f"La relación referencia un destino desconocido: '{act.clase_destino_referencia}'.")
 
         # 4. Ensamblar plan en orden topológico estricto:

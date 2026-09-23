@@ -102,9 +102,11 @@ def listar_proyectos(
             es_favorito=item.es_favorito,
             slug=item.slug,
             propietario_id=item.propietario_id,
+            es_dueno=item.es_dueno,
         )
         for item in resultado.items
     ]
+
     return ListaProyectosRead(items=items)
 
 

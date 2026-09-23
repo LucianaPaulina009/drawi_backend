@@ -127,7 +127,7 @@ class ProcesarOperacionDiagramaUseCase:
             )
 
         # 1. Autorización previa antes de cualquier acción o replay
-        obtener_diagrama_autorizado(
+        diagrama = obtener_diagrama_autorizado(
             propietario_id=command.propietario_id,
             diagrama_id=command.diagrama_id,
             proyecto_repository=self.proyecto_repo,
@@ -135,6 +135,7 @@ class ProcesarOperacionDiagramaUseCase:
             colaborador_repository=self.colaborador_repo,
             exigir_edicion=True,
         )
+
 
         # 2. Huella canónica e idempotencia
         payload_canonica = {
@@ -540,7 +541,8 @@ class ProcesarOperacionDiagramaUseCase:
             },
         }
 
-        # 4. Registrar confirmación y confirmar de forma atómica en el mismo commit
+        # 4. Registrar confirmación, actualizar actividad del proyecto y confirmar de forma atómica
+        self.proyecto_repo.actualizar_fecha_actividad(diagrama.id_proyecto)
         self.idempotencia_service.registrar_confirmacion(
             action_id=command.action_id,
             usuario_id=command.propietario_id,
@@ -549,6 +551,7 @@ class ProcesarOperacionDiagramaUseCase:
             respuesta=recibo,
         )
         self.uow.commit()
+
 
         try:
             from app.core.dependencies import get_event_bus

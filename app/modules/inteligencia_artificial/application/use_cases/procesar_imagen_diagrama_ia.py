@@ -325,7 +325,11 @@ class ProcesarImagenDiagramaIaUseCase:
 
             interaccion.completar(
                 respuesta_ia=respuesta_final,
-                modelo_utilizado=getattr(self.coordinador_gemini, "modelo_primario", "gemini-2.5-flash"),
+                modelo_utilizado=getattr(
+                    self.coordinador_gemini,
+                    "ultimo_modelo_usado",
+                    getattr(self.coordinador_gemini, "modelo_primario", settings.IA_GEMINI_PRIMARY_MODEL),
+                ),
                 detalle_ejecucion={
                     "pasos": resultados_pasos,
                     "clases_reutilizadas": plan.clases_reutilizadas,
@@ -347,7 +351,11 @@ class ProcesarImagenDiagramaIaUseCase:
         except (RespuestaIaInvalidaException, PlanIaInvalidoException) as err:
             interaccion.completar(
                 respuesta_ia=f"No se pudo completar el reconocimiento del diagrama: {err.message}",
-                modelo_utilizado=getattr(self.coordinador_gemini, "modelo_primario", "gemini-2.5-flash"),
+                modelo_utilizado=getattr(
+                    self.coordinador_gemini,
+                    "ultimo_modelo_usado",
+                    getattr(self.coordinador_gemini, "modelo_primario", settings.IA_GEMINI_PRIMARY_MODEL),
+                ),
                 detalle_ejecucion=[{
                     "paso": 1,
                     "tipo": "reconocimiento_imagen",

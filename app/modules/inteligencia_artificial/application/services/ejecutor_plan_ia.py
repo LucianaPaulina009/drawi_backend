@@ -143,6 +143,28 @@ class EjecutorPlanIa:
                 c.atributos = self.atributo_repo.listar_por_clase(c.id)
         return clases
 
+    @staticmethod
+    def _registrar_alias_clase(
+        mapa: dict[str, UUID],
+        referencia: str | None,
+        nombre: str | None,
+        clase_id: UUID,
+    ) -> None:
+        candidatos = [referencia, nombre, str(clase_id)]
+        for c in candidatos:
+            if not c:
+                continue
+            c_str = str(c).strip()
+            c_low = c_str.lower()
+            mapa[c_low] = clase_id
+            c_norm = ResolvedorReferenciasIa.normalizar_cadena_comparacion(c_str)
+            if c_norm:
+                mapa[c_norm] = clase_id
+                mapa[f"ref_{c_norm}"] = clase_id
+                mapa[f"ref {c_norm}"] = clase_id
+                mapa[c_norm.replace("_", " ")] = clase_id
+                mapa[c_norm.replace(" ", "_")] = clase_id
+
     def ejecutar_plan(
         self,
         *,
@@ -154,8 +176,7 @@ class EjecutorPlanIa:
         mapa_referencias: dict[str, UUID] = {}
         if clases_existentes:
             for clave, uid in clases_existentes.items():
-                mapa_referencias[clave.lower()] = uid
-                mapa_referencias[str(uid).lower()] = uid
+                self._registrar_alias_clase(mapa_referencias, clave, clave, uid)
 
         resultados_pasos: list[dict[str, Any]] = []
 
@@ -194,9 +215,9 @@ class EjecutorPlanIa:
                         nombre=accion.nombre,
                     )
                     clase, _ = self.crear_clase_use_case.execute(cmd)
-                    mapa_referencias[accion.referencia.strip().lower()] = clase.id
-                    mapa_referencias[accion.nombre.strip().lower()] = clase.id
-                    mapa_referencias[str(clase.id).lower()] = clase.id
+                    self._registrar_alias_clase(
+                        mapa_referencias, accion.referencia, accion.nombre, clase.id
+                    )
 
                     proy = proyectar_clase(self.clase_repo, self.atributo_repo, clase.id)
                     efectos = construir_efectos(clases_actualizadas=[proy])
@@ -233,7 +254,9 @@ class EjecutorPlanIa:
                     )
                     clase_act = self.actualizar_clase_use_case.execute(cmd_act_c)
                     if accion.nuevo_nombre:
-                        mapa_referencias[accion.nuevo_nombre.strip().lower()] = clase_act.id
+                        self._registrar_alias_clase(
+                            mapa_referencias, accion.nuevo_nombre, accion.nuevo_nombre, clase_act.id
+                        )
 
                     proy = proyectar_clase(self.clase_repo, self.atributo_repo, clase_act.id)
                     efectos = construir_efectos(clases_actualizadas=[proy])
@@ -761,12 +784,11 @@ class EjecutorPlanIa:
                     struct_id = UUID(res_nm["id"])
 
                     # Registrar en mapa_referencias para que crear_atributo u otras acciones subsiguientes encuentren la tabla intermedia
-                    if accion.referencia_intermedia:
-                        mapa_referencias[accion.referencia_intermedia.strip().lower()] = intermedia_id
-                    mapa_referencias[nombre_inter.strip().lower()] = intermedia_id
+                    self._registrar_alias_clase(
+                        mapa_referencias, accion.referencia_intermedia, nombre_inter, intermedia_id
+                    )
                     mapa_referencias[f"{clase_origen_obj.nombre}_{clase_destino_obj.nombre}".strip().lower()] = intermedia_id
                     mapa_referencias[f"{clase_destino_obj.nombre}_{clase_origen_obj.nombre}".strip().lower()] = intermedia_id
-                    mapa_referencias[str(intermedia_id).lower()] = intermedia_id
                     mapa_referencias["intermedia"] = intermedia_id
                     mapa_referencias["tabla intermedia"] = intermedia_id
                     mapa_referencias["tabla de muchos a muchos"] = intermedia_id
@@ -849,16 +871,25 @@ class EjecutorPlanIa:
                 paso_info["codigo_error"] = getattr(err, "code", None)
                 resultados_pasos.append(paso_info)
 
-                for sig_idx in range(indice, len(acciones)):
-                    resultados_pasos.append(
-                        {
-                            "paso": sig_idx + 1,
-                            "tipo": acciones[sig_idx].tipo,
-                            "estado": "omitido",
-                            "motivo": f"Omitido debido al rechazo previo en el paso {indice} ({accion.tipo}).",
-                        }
-                    )
-                break
+                es_paso_independiente = isinstance(
+                    accion,
+                    (
+                        AccionCrearRelacionSchema,
+                        AccionCrearAtributoSchema,
+                        AccionCrearEstructuraNmSchema,
+                    ),
+                )
+                if not es_paso_independiente:
+                    for sig_idx in range(indice, len(acciones)):
+                        resultados_pasos.append(
+                            {
+                                "paso": sig_idx + 1,
+                                "tipo": acciones[sig_idx].tipo,
+                                "estado": "omitido",
+                                "motivo": f"Omitido debido al rechazo previo en el paso {indice} ({accion.tipo}).",
+                            }
+                        )
+                    break
 
             except Exception as err:
                 logger.warning(

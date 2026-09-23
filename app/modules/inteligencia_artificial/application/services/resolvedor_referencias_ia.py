@@ -5,6 +5,9 @@ from typing import Any
 from uuid import UUID
 
 
+import unicodedata
+
+
 @dataclass(slots=True)
 class ResultadoResolucion:
     exito: bool
@@ -22,12 +25,38 @@ class ResolvedorReferenciasIa:
     """
 
     @staticmethod
+    def remover_tildes(texto: str) -> str:
+        if not texto:
+            return ""
+        return "".join(
+            c for c in unicodedata.normalize("NFD", texto)
+            if unicodedata.category(c) != "Mn"
+        )
+
+    @classmethod
+    def normalizar_cadena_comparacion(cls, texto: str) -> str:
+        """
+        Limpia y normaliza una referencia o nombre para comparación insensible a mayúsculas,
+        tildes, espacios, guiones y prefijos semánticos ('ref_', 'ref ', 'ref-', 'ref.', 'tb_', 'tbl_', 't_').
+        """
+        if not texto:
+            return ""
+        s = cls.remover_tildes(texto.strip().lower())
+        for prefijo in ("ref_", "ref-", "ref.", "ref ", "tb_", "tbl_", "t_"):
+            if s.startswith(prefijo):
+                s = s[len(prefijo):].strip()
+                break
+        return s.replace("-", "_").replace(" ", "_")
+
+    @classmethod
     def resolver_clase(
+        cls,
         referencia: str,
         clases: list[Any],
         mapa_alias: dict[str, UUID] | None = None,
     ) -> ResultadoResolucion:
-        ref = referencia.strip().lower()
+        ref_raw = (referencia or "").strip()
+        ref = ref_raw.lower()
         if not ref:
             return ResultadoResolucion(
                 exito=False,
@@ -35,7 +64,7 @@ class ResolvedorReferenciasIa:
                 motivo="La referencia de clase no puede estar vacía.",
             )
 
-        # 1. Alias o mapa en memoria previo
+        # 1. Alias o mapa en memoria previo (búsqueda exacta o directa)
         if mapa_alias and ref in mapa_alias:
             return ResultadoResolucion(exito=True, id=mapa_alias[ref])
 
@@ -45,15 +74,40 @@ class ResolvedorReferenciasIa:
                 return ResultadoResolucion(exito=True, id=c.id)
 
         # 3. Búsqueda por nombre de clase exacto
-        coincidencias = [c for c in clases if getattr(c, "nombre", "").strip().lower() == ref]
-
-        if len(coincidencias) == 1:
-            return ResultadoResolucion(exito=True, id=coincidencias[0].id)
-        if len(coincidencias) > 1:
+        coincidencias_exactas = [c for c in clases if getattr(c, "nombre", "").strip().lower() == ref]
+        if len(coincidencias_exactas) == 1:
+            return ResultadoResolucion(exito=True, id=coincidencias_exactas[0].id)
+        if len(coincidencias_exactas) > 1:
             return ResultadoResolucion(
                 exito=False,
                 es_ambiguo=True,
                 motivo=f"Existen múltiples clases con el nombre '{referencia}'. Se requiere aclaración.",
+            )
+
+        # 4. Búsqueda normalizada en mapa_alias (soporta ref_producto, ref producto, Producto, etc.)
+        ref_norm = cls.normalizar_cadena_comparacion(ref)
+        if mapa_alias:
+            if ref_norm in mapa_alias:
+                return ResultadoResolucion(exito=True, id=mapa_alias[ref_norm])
+            alias_norm_matches = {
+                uid for k, uid in mapa_alias.items()
+                if cls.normalizar_cadena_comparacion(k) == ref_norm
+            }
+            if len(alias_norm_matches) == 1:
+                return ResultadoResolucion(exito=True, id=next(iter(alias_norm_matches)))
+
+        # 5. Búsqueda normalizada sobre los nombres de clases existentes en el diagrama
+        coincidencias_norm = [
+            c for c in clases
+            if cls.normalizar_cadena_comparacion(getattr(c, "nombre", "")) == ref_norm
+        ]
+        if len(coincidencias_norm) == 1:
+            return ResultadoResolucion(exito=True, id=coincidencias_norm[0].id)
+        if len(coincidencias_norm) > 1:
+            return ResultadoResolucion(
+                exito=False,
+                es_ambiguo=True,
+                motivo=f"Existen múltiples clases que coinciden con '{referencia}'. Se requiere aclaración.",
             )
 
         return ResultadoResolucion(
@@ -102,7 +156,7 @@ class ResolvedorReferenciasIa:
                         metadatos={"id_clase": id_clase, "procedencia": getattr(a, "procedencia", None)},
                     )
 
-            # Coincidencia por nombre
+            # Coincidencia por nombre exacto
             coincidencias = [a for a in attrs if getattr(a, "nombre", "").strip().lower() == ref_attr]
             if len(coincidencias) == 1:
                 return ResultadoResolucion(
@@ -117,6 +171,25 @@ class ResolvedorReferenciasIa:
                     motivo=f"Existen múltiples atributos con el nombre '{referencia_atributo}' en la clase '{clase_obj.nombre}'.",
                 )
 
+            # Coincidencia normalizada (tildes, prefijos, guiones)
+            ref_attr_norm = cls.normalizar_cadena_comparacion(ref_attr)
+            coincidencias_norm = [
+                a for a in attrs
+                if cls.normalizar_cadena_comparacion(getattr(a, "nombre", "")) == ref_attr_norm
+            ]
+            if len(coincidencias_norm) == 1:
+                return ResultadoResolucion(
+                    exito=True,
+                    id=coincidencias_norm[0].id,
+                    metadatos={"id_clase": id_clase, "procedencia": getattr(coincidencias_norm[0], "procedencia", None)},
+                )
+            if len(coincidencias_norm) > 1:
+                return ResultadoResolucion(
+                    exito=False,
+                    es_ambiguo=True,
+                    motivo=f"Existen múltiples atributos similares a '{referencia_atributo}' en la clase '{clase_obj.nombre}'.",
+                )
+
             return ResultadoResolucion(
                 exito=False,
                 es_ambiguo=False,
@@ -124,10 +197,14 @@ class ResolvedorReferenciasIa:
             )
 
         # Si no se especifica la clase, buscar en todo el diagrama
+        ref_attr_norm = cls.normalizar_cadena_comparacion(ref_attr)
         hallazgos: list[tuple[Any, Any]] = []
         for c in clases:
             for a in getattr(c, "atributos", []):
-                if getattr(a, "nombre", "").strip().lower() == ref_attr or str(getattr(a, "id", "")).lower() == ref_attr:
+                nom_a = getattr(a, "nombre", "").strip()
+                if nom_a.lower() == ref_attr or str(getattr(a, "id", "")).lower() == ref_attr:
+                    hallazgos.append((c, a))
+                elif cls.normalizar_cadena_comparacion(nom_a) == ref_attr_norm:
                     hallazgos.append((c, a))
 
         if len(hallazgos) == 1:
