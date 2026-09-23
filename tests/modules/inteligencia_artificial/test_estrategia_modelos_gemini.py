@@ -388,36 +388,36 @@ def test_analisis_imagen_error_400_no_recuperable_inmediato():
     assert breaker.state == CircuitState.CLOSED
 
 
-# Caso 7 Modelos: Cascada completa por orden de prioridad ante fallos recuperables
-def test_cascada_completa_7_modelos_fallback():
-    assert len(MODELOS_GEMINI_ORDENADOS) == 7
+# Caso 6 Modelos: Cascada completa por orden de prioridad ante fallos recuperables
+def test_cascada_completa_6_modelos_fallback():
+    assert len(MODELOS_GEMINI_ORDENADOS) == 6
     assert MODELOS_GEMINI_ORDENADOS[0] == "gemini-3.1-flash-lite"
-    assert MODELOS_GEMINI_ORDENADOS[-1] == "gemini-2.5-flash"
+    assert MODELOS_GEMINI_ORDENADOS[-1] == "gemini-3.8-flash"
 
-    # Los primeros 6 modelos fallan por 429/503/timeout
+    # Los primeros 5 modelos fallan por 429/503/timeout
     respuestas = {
         m: ProveedorIaRecuperableException(f"Error temporal en {m}")
-        for m in MODELOS_GEMINI_ORDENADOS[:6]
+        for m in MODELOS_GEMINI_ORDENADOS[:5]
     }
-    # El 7mo modelo (gemini-2.5-flash) responde con éxito
-    respuestas[MODELOS_GEMINI_ORDENADOS[6]] = ResultadoProveedorIa(
-        texto_respuesta="respuesta final del 7mo modelo",
-        modelo=MODELOS_GEMINI_ORDENADOS[6],
+    # El 6to modelo (gemini-3.8-flash) responde con éxito
+    respuestas[MODELOS_GEMINI_ORDENADOS[5]] = ResultadoProveedorIa(
+        texto_respuesta="respuesta final del 6to modelo",
+        modelo=MODELOS_GEMINI_ORDENADOS[5],
     )
 
     proveedor = FakeProveedorIa(respuestas)
     coordinador = EstrategiaModelosGemini(proveedor, retry_backoff_ms=0)
-    assert len(coordinador.modelos) == 7
+    assert len(coordinador.modelos) == 6
 
     resultado = coordinador.ejecutar_con_fallback(
         prompt_sistema="system",
         mensaje_usuario="crea clase Producto",
     )
 
-    assert resultado.modelo == "gemini-2.5-flash"
-    assert resultado.texto_respuesta == "respuesta final del 7mo modelo"
+    assert resultado.modelo == "gemini-3.8-flash"
+    assert resultado.texto_respuesta == "respuesta final del 6to modelo"
     assert resultado.fallback_utilizado is True
-    assert resultado.intentos == 7
+    assert resultado.intentos == 6
     assert proveedor.modelos_llamados == list(MODELOS_GEMINI_ORDENADOS)
 
 

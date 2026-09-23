@@ -307,7 +307,7 @@ def test_estrategia_modelos_gemini_transcribir_fallback():
 
     estrategia = EstrategiaModelosGemini(
         proveedor=mock_proveedor,
-        modelos=["gemini-2.5-flash", "gemini-2.0-flash"],
+        modelos=["gemini-3.1-flash-lite", "gemini-3.5-flash-lite"],
         retry_backoff_ms=0,
     )
 
@@ -319,13 +319,13 @@ def test_estrategia_modelos_gemini_transcribir_fallback():
     assert texto == "Resultado de fallback"
     assert mock_proveedor.transcribir_audio.call_count == 2
     mock_proveedor.transcribir_audio.assert_any_call(
-        modelo="gemini-2.5-flash",
+        modelo="gemini-3.1-flash-lite",
         contenido_audio=b"audio_bytes",
         mime_type="audio/webm",
         idioma="es",
     )
     mock_proveedor.transcribir_audio.assert_any_call(
-        modelo="gemini-2.0-flash",
+        modelo="gemini-3.5-flash-lite",
         contenido_audio=b"audio_bytes",
         mime_type="audio/webm",
         idioma="es",

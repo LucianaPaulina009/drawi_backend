@@ -87,10 +87,10 @@ class Settings(BaseSettings):
         default="gemini-3.5-flash-lite"
     )
     IA_GEMINI_MODELS_CASCADE: str = Field(
-        default="gemini-3.1-flash-lite,gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.6-flash,gemini-3.7-flash,gemini-3.8-flash,gemini-2.5-flash"
+        default="gemini-3.1-flash-lite,gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.6-flash,gemini-3.7-flash,gemini-3.8-flash"
     )
     IA_GEMINI_TIMEOUT_SECONDS: float = Field(
-        default=10.0, ge=10.0
+        default=20.0, ge=10.0
     )
     IA_GEMINI_RETRY_BACKOFF_MS: int = Field(
         default=300, ge=0
@@ -116,7 +116,6 @@ class Settings(BaseSettings):
                 "gemini-3.6-flash",
                 "gemini-3.7-flash",
                 "gemini-3.8-flash",
-                "gemini-2.5-flash",
             )
         return tuple(m.strip() for m in self.IA_GEMINI_MODELS_CASCADE.split(",") if m.strip())
     IA_TRANSCRIPCION_IDIOMA: str = Field(default="es")

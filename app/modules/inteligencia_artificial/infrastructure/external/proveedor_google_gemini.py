@@ -105,6 +105,9 @@ class ProveedorGoogleGemini(ProveedorIa):
                 or "resource exhausted" in mensaje.lower()
                 or "overloaded" in mensaje.lower()
                 or "timeout" in mensaje.lower()
+                or "not found" in mensaje.lower()
+                or "no longer available" in mensaje.lower()
+                or "not available" in mensaje.lower()
             ):
                 raise ProveedorIaRecuperableException(
                     f"Error temporal del proveedor Gemini ({codigo}): {mensaje}"
@@ -183,6 +186,9 @@ class ProveedorGoogleGemini(ProveedorIa):
                 or "resource exhausted" in mensaje.lower()
                 or "overloaded" in mensaje.lower()
                 or "timeout" in mensaje.lower()
+                or "not found" in mensaje.lower()
+                or "no longer available" in mensaje.lower()
+                or "not available" in mensaje.lower()
             ):
                 raise ProveedorIaRecuperableException(
                     f"Error temporal del proveedor Gemini ({codigo}): {mensaje}"
@@ -256,6 +262,9 @@ class ProveedorGoogleGemini(ProveedorIa):
                 or "resource exhausted" in mensaje.lower()
                 or "overloaded" in mensaje.lower()
                 or "timeout" in mensaje.lower()
+                or "not found" in mensaje.lower()
+                or "no longer available" in mensaje.lower()
+                or "not available" in mensaje.lower()
             ):
                 raise ProveedorIaRecuperableException(
                     f"Error temporal del proveedor Gemini ({codigo}): {mensaje}"
@@ -298,7 +307,7 @@ class ProveedorGoogleGemini(ProveedorIa):
         cliente = self._obtener_cliente()
         mime_base = mime_type.split(";")[0].strip().lower()
         part_audio = types.Part.from_bytes(data=contenido_audio, mime_type=mime_base)
-        timeout_ms = int(self._timeout_segundos * 1000) if self._timeout_segundos else 15000
+        timeout_ms = self._calcular_timeout_ms()
         try:
             config = types.GenerateContentConfig(
                 temperature=temperatura,
@@ -334,6 +343,9 @@ class ProveedorGoogleGemini(ProveedorIa):
                 or "resource exhausted" in mensaje.lower()
                 or "overloaded" in mensaje.lower()
                 or "timeout" in mensaje.lower()
+                or "not found" in mensaje.lower()
+                or "no longer available" in mensaje.lower()
+                or "not available" in mensaje.lower()
             ):
                 raise ProveedorIaRecuperableException(
                     f"Error temporal del proveedor Gemini ({codigo}): {mensaje}"

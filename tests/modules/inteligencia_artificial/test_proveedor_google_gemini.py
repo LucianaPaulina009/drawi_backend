@@ -133,3 +133,27 @@ def test_proveedor_gemini_400_deadline_o_config_invalida_lanza_no_recuperable():
 
         assert "400" in str(exc_info.value) or "deadline" in str(exc_info.value).lower()
 
+
+def test_proveedor_gemini_404_no_longer_available_lanza_recuperable():
+    proveedor = ProveedorGoogleGemini(api_key="fake-key-123", timeout_segundos=10.0)
+
+    with patch("google.genai.Client") as mock_client_cls:
+        mock_instance = MagicMock()
+        mock_client_cls.return_value = mock_instance
+
+        error_404 = errors.APIError(
+            404,
+            {"error": {"message": "This model models/gemini-2.5-flash is no longer available to new users.", "code": 404}},
+        )
+        mock_instance.models.generate_content.side_effect = error_404
+
+        with pytest.raises(ProveedorIaRecuperableException) as exc_info:
+            proveedor.analizar_diagrama_imagen(
+                modelo="gemini-3.1-flash-lite",
+                contenido_imagen=b"fake",
+                mime_type="image/png",
+                prompt_estructural="prompt",
+            )
+
+        assert "404" in str(exc_info.value) or "no longer available" in str(exc_info.value)
+
