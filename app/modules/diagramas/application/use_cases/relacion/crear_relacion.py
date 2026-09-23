@@ -16,9 +16,11 @@ from app.modules.diagramas.domain.repositories.referencia_fk_repository import R
 from app.modules.diagramas.domain.repositories.relacion_repository import RelacionRepository
 from app.modules.diagramas.domain.value_objects.procedencia_atributo import ProcedenciaAtributo
 from app.modules.diagramas.domain.value_objects.conector import Conector
+from app.modules.diagramas.domain.value_objects.tipo_relacion import TipoRelacion
 from app.modules.gestion_colaboradores.domain.repositories.colaborador_proyecto_repository import ColaboradorProyectoRepository
 from app.modules.gestion_proyectos.domain.repositories.proyecto_repository import ProyectoRepository
 from app.shared.application.ports import UnitOfWork
+from app.shared.domain.exceptions import ValidationException
 
 
 @dataclass(slots=True)
@@ -88,6 +90,10 @@ class CrearRelacionUseCase:
             clase = self.clase_repository.obtener_por_id(clase_id)
             if clase is None or clase.id_diagrama != command.diagrama_id:
                 raise ClaseNoEncontradaException()
+        if command.id_clase_origen == command.id_clase_destino:
+            tipo_val = TipoRelacion.validar(command.tipo_relacion)
+            if tipo_val != TipoRelacion.ASOCIACION:
+                raise ValidationException("Las relaciones recursivas (autoreferenciales) solo están permitidas para el tipo 'asociacion'.")
         relaciones_existentes = self.relacion_repository.listar_por_diagrama(command.diagrama_id)
         ocupaciones = {
             (rel.id_clase_origen, Conector.a_handle_canonico(rel.conector_origen))

@@ -21,10 +21,27 @@ class SQLModelEstructuraRelacionNmRepository(EstructuraRelacionNmRepository):
         return EstructuraRelacionNmMapper.a_dominio(modelo) if modelo else None
 
     def listar_por_diagrama(self, diagrama_id: UUID) -> list[EstructuraRelacionNm]:
-        registros = self.bd.exec(select(EstructuraRelacionNmModel).where(
-            EstructuraRelacionNmModel.id_diagrama == diagrama_id,
-            EstructuraRelacionNmModel.fecha_eliminacion.is_(None),
-        ))
+        from app.modules.diagramas.infrastructure.persistence.models.clase_model import ClaseModel
+        from sqlalchemy.orm import aliased
+
+        clase_orig = aliased(ClaseModel)
+        clase_dest = aliased(ClaseModel)
+        clase_inter = aliased(ClaseModel)
+
+        sentencia = (
+            select(EstructuraRelacionNmModel)
+            .join(clase_orig, EstructuraRelacionNmModel.id_clase_origen == clase_orig.id)
+            .join(clase_dest, EstructuraRelacionNmModel.id_clase_destino == clase_dest.id)
+            .join(clase_inter, EstructuraRelacionNmModel.id_clase_intermedia == clase_inter.id)
+            .where(
+                EstructuraRelacionNmModel.id_diagrama == diagrama_id,
+                EstructuraRelacionNmModel.fecha_eliminacion.is_(None),
+                clase_orig.fecha_eliminacion.is_(None),
+                clase_dest.fecha_eliminacion.is_(None),
+                clase_inter.fecha_eliminacion.is_(None),
+            )
+        )
+        registros = self.bd.exec(sentencia)
         return [EstructuraRelacionNmMapper.a_dominio(item) for item in registros]
 
     def obtener_por_recurso(self, recurso_id: UUID) -> EstructuraRelacionNm | None:

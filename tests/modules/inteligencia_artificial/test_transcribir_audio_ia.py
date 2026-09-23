@@ -299,10 +299,9 @@ def test_proveedor_transcripcion_gemini_error_recuperable():
 
 def test_estrategia_modelos_gemini_transcribir_fallback():
     mock_proveedor = MagicMock(spec=ProveedorIa)
-    # Falla en intento 1 y reintento del primer modelo, tiene éxito en el modelo de fallback
+    # Falla el primer modelo con 429/recuperable, tiene éxito en el modelo de fallback inmediatamente
     mock_proveedor.transcribir_audio.side_effect = [
-        ProveedorIaRecuperableException("Overloaded"),
-        ProveedorIaRecuperableException("Overloaded (retry)"),
+        ProveedorIaRecuperableException("429 Quota Exceeded"),
         "Resultado de fallback",
     ]
 
@@ -318,7 +317,7 @@ def test_estrategia_modelos_gemini_transcribir_fallback():
     )
 
     assert texto == "Resultado de fallback"
-    assert mock_proveedor.transcribir_audio.call_count == 3
+    assert mock_proveedor.transcribir_audio.call_count == 2
     mock_proveedor.transcribir_audio.assert_any_call(
         modelo="gemini-2.5-flash",
         contenido_audio=b"audio_bytes",

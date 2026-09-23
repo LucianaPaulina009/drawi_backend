@@ -123,3 +123,27 @@ def test_llave_foranea_de_sistema_no_se_puede_eliminar_directamente():
 
     with pytest.raises(LlaveForaneaProtegidaException, match="clave foránea"):
         validar_eliminacion_atributo(atributo)
+
+
+def test_tipo_dato_soporta_sinonimos_y_tildes():
+    from app.modules.diagramas.domain.value_objects.tipo_dato import TipoDato
+
+    assert TipoDato.from_valor("número") == TipoDato.INTEGER
+    assert TipoDato.from_valor("cantidad") == TipoDato.INTEGER
+    assert TipoDato.from_valor("precio") == TipoDato.DECIMAL
+    assert TipoDato.from_valor("string") == TipoDato.VARCHAR
+    assert TipoDato.from_valor("texto") == TipoDato.TEXT
+    assert TipoDato.from_valor("booleano") == TipoDato.BOOLEAN
+    assert TipoDato.from_valor("fecha") == TipoDato.DATE
+    assert TipoDato.from_valor("datetime") == TipoDato.TIMESTAMP
+
+
+def test_tipo_dato_normalizar_o_inferir():
+    from app.modules.diagramas.domain.value_objects.tipo_dato import TipoDato
+
+    assert TipoDato.normalizar_o_inferir(None, "precio") == TipoDato.DECIMAL
+    assert TipoDato.normalizar_o_inferir("", "número") == TipoDato.INTEGER
+    assert TipoDato.normalizar_o_inferir("desconocido", "cantidad") == TipoDato.INTEGER
+    assert TipoDato.normalizar_o_inferir(None, "descripcion") == TipoDato.TEXT
+    assert TipoDato.normalizar_o_inferir(None, "campo_generico") == TipoDato.VARCHAR
+

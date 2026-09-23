@@ -60,6 +60,10 @@ from app.modules.inteligencia_artificial.application.services.ejecutor_plan_ia i
 from app.modules.inteligencia_artificial.application.services.estrategia_modelos_gemini import (
     EstrategiaModelosGemini,
 )
+from app.modules.inteligencia_artificial.application.use_cases.procesar_audio_diagrama_ia import (
+    ProcesarAudioDiagramaIaCommand,
+    ProcesarAudioDiagramaIaUseCase,
+)
 from app.modules.inteligencia_artificial.application.use_cases.procesar_imagen_diagrama_ia import (
     ProcesarImagenDiagramaIaCommand,
     ProcesarImagenDiagramaIaUseCase,
@@ -158,7 +162,8 @@ def listar_interacciones_ia(
     id_diagrama: UUID,
     usuario: CurrentUser,
     session: DBSession,
-    limit: int = Query(default=40, ge=1, le=100),
+    limit: int = Query(default=5, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     before: UUID | None = Query(default=None),
 ) -> ListaInteraccionesIaRead:
     proyecto_repo = SQLModelProyectoRepository(session)
@@ -173,18 +178,23 @@ def listar_interacciones_ia(
         colaborador_repository=colaborador_repo,
     )
 
-    interacciones = handler.execute(
+    resultado = handler.execute(
         ListarInteraccionesIaQuery(
             usuario_id=usuario.user_id,
             diagrama_id=id_diagrama,
             limite=limit,
+            offset=offset,
             antes_de_id=before,
         )
     )
 
     return ListaInteraccionesIaRead(
-        items=[_a_read(i) for i in interacciones],
-        siguienteCursor=None,
+        items=[_a_read(i) for i in resultado.items],
+        siguienteCursor=str(resultado.siguiente_cursor) if resultado.siguiente_cursor else None,
+        total=resultado.total,
+        hayMas=resultado.hay_mas,
+        offset=resultado.offset,
+        limit=resultado.limite,
     )
 
 
@@ -378,6 +388,195 @@ def _crear_procesar_mensaje_ia_use_case(
     )
 
 
+def _crear_procesar_audio_ia_use_case(
+    session: DBSession,
+    uow: UoWDep,
+) -> ProcesarAudioDiagramaIaUseCase:
+    proyecto_repo = SQLModelProyectoRepository(session)
+    diagrama_repo = SQLModelDiagramaRepository(session)
+    interaccion_repo = SQLModelInteraccionIaRepository(session)
+    clase_repo = SQLModelClaseRepository(session)
+    atributo_repo = SQLModelAtributoRepository(session)
+    relacion_repo = SQLModelRelacionRepository(session)
+    referencia_fk_repo = SQLModelReferenciaFKRepository(session)
+    estructura_nm_repo = SQLModelEstructuraRelacionNmRepository(session)
+    colaborador_repo = SQLModelColaboradorProyectoRepository(session)
+
+    query_diagrama = ObtenerDiagramaCompletoQueryHandler(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        colaborador_repository=colaborador_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        estructura_nm_repository=estructura_nm_repo,
+    )
+    constructor_contexto = ConstructorContextoDiagrama(
+        query_diagrama=query_diagrama,
+        interaccion_repo=interaccion_repo,
+    )
+
+    proveedor = get_proveedor_ia()
+    coordinador_gemini = EstrategiaModelosGemini(proveedor)
+
+    crear_clase_use_case = CrearClaseUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    atributo_use_case = AtributoUseCase(
+        p=proyecto_repo,
+        d=diagrama_repo,
+        c=clase_repo,
+        a=atributo_repo,
+        u=uow,
+        col=colaborador_repo,
+        rfk=referencia_fk_repo,
+        relacion_repository=relacion_repo,
+        estructura_repository=estructura_nm_repo,
+    )
+
+    crear_relacion_use_case = CrearRelacionUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    from app.modules.diagramas.application.services.idempotencia_diagrama import (
+        IdempotenciaDiagramaService,
+    )
+    from app.modules.diagramas.infrastructure.persistence.repositories.sqlmodel_operacion_diagrama_repository import (
+        SQLModelOperacionDiagramaRepository,
+    )
+    from app.modules.diagramas.application.use_cases.clase.actualizar_clase import (
+        ActualizarClaseUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.clase.eliminar_clase import (
+        EliminarClaseUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.relacion.actualizar_relacion import (
+        ActualizarRelacionUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.relacion.eliminar_relacion import (
+        EliminarRelacionUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.estructura_relacion_nm.crear_estructura_relacion_nm import (
+        CrearEstructuraRelacionNmUseCase,
+    )
+    from app.modules.diagramas.application.use_cases.estructura_relacion_nm.eliminar_estructura_relacion_nm import (
+        EliminarEstructuraRelacionNmUseCase,
+    )
+
+    idempotencia = IdempotenciaDiagramaService(SQLModelOperacionDiagramaRepository(session))
+
+    crear_estructura_nm_use_case = CrearEstructuraRelacionNmUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        estructura_repository=estructura_nm_repo,
+        idempotencia=idempotencia,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    actualizar_clase_use_case = ActualizarClaseUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    eliminar_clase_use_case = EliminarClaseUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        estructura_repository=estructura_nm_repo,
+    )
+
+    actualizar_relacion_use_case = ActualizarRelacionUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        clase_repository=clase_repo,
+        relacion_repository=relacion_repo,
+        atributo_repository=atributo_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    eliminar_relacion_use_case = EliminarRelacionUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+        atributo_repository=atributo_repo,
+        clase_repository=clase_repo,
+        estructura_repository=estructura_nm_repo,
+    )
+
+    eliminar_estructura_nm_use_case = EliminarEstructuraRelacionNmUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        estructura_repository=estructura_nm_repo,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+    ejecutor_plan = EjecutorPlanIa(
+        crear_clase_use_case=crear_clase_use_case,
+        atributo_use_case=atributo_use_case,
+        crear_relacion_use_case=crear_relacion_use_case,
+        clase_repository=clase_repo,
+        atributo_repository=atributo_repo,
+        relacion_repository=relacion_repo,
+        referencia_fk_repository=referencia_fk_repo,
+        actualizar_clase_use_case=actualizar_clase_use_case,
+        eliminar_clase_use_case=eliminar_clase_use_case,
+        actualizar_relacion_use_case=actualizar_relacion_use_case,
+        eliminar_relacion_use_case=eliminar_relacion_use_case,
+        crear_estructura_nm_use_case=crear_estructura_nm_use_case,
+        eliminar_estructura_nm_use_case=eliminar_estructura_nm_use_case,
+        estructura_nm_repository=estructura_nm_repo,
+    )
+
+    return ProcesarAudioDiagramaIaUseCase(
+        proyecto_repository=proyecto_repo,
+        diagrama_repository=diagrama_repo,
+        interaccion_repository=interaccion_repo,
+        clase_repository=clase_repo,
+        constructor_contexto=constructor_contexto,
+        coordinador_gemini=coordinador_gemini,
+        ejecutor_plan=ejecutor_plan,
+        uow=uow,
+        colaborador_repository=colaborador_repo,
+    )
+
+
 @router.post(
     "/{id_diagrama}/interacciones-ia",
     response_model=InteraccionIaRead,
@@ -429,46 +628,17 @@ async def enviar_audio_ia(
         )
 
     mime_type = audio.content_type or "audio/webm"
-    proveedor_transcripcion = get_proveedor_transcripcion()
+    use_case = _crear_procesar_audio_ia_use_case(session, uow)
 
-    proyecto_repo = SQLModelProyectoRepository(session)
-    diagrama_repo = SQLModelDiagramaRepository(session)
-    colaborador_repo = SQLModelColaboradorProyectoRepository(session)
-
-    use_case_transcripcion = TranscribirAudioIaUseCase(
-        proyecto_repository=proyecto_repo,
-        diagrama_repository=diagrama_repo,
-        proveedor_transcripcion=proveedor_transcripcion,
-        colaborador_repository=colaborador_repo,
-    )
-
-    resultado_transcripcion = use_case_transcripcion.execute(
-        TranscribirAudioIaCommand(
+    interaccion = use_case.execute(
+        ProcesarAudioDiagramaIaCommand(
             usuario_id=usuario.user_id,
             diagrama_id=id_diagrama,
             contenido_audio=contenido_audio,
             mime_type=mime_type,
+            clave_idempotencia=clave_idempotencia,
             duracion_segundos=duracion_segundos,
             idioma=idioma,
-        )
-    )
-
-    texto_transcrito = (resultado_transcripcion.texto or "").strip()
-    if not texto_transcrito:
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="No se detectó contenido comprensible en el audio grabado.",
-        )
-
-    use_case_procesar = _crear_procesar_mensaje_ia_use_case(session, uow)
-    interaccion = use_case_procesar.execute(
-        ProcesarMensajeIaCommand(
-            usuario_id=usuario.user_id,
-            diagrama_id=id_diagrama,
-            texto=texto_transcrito,
-            clave_idempotencia=clave_idempotencia,
-            tipo_interaccion="audio",
         )
     )
 
@@ -692,6 +862,8 @@ def _crear_procesar_imagen_ia_use_case(
         ejecutor_plan=ejecutor_plan,
         uow=uow,
         colaborador_repository=colaborador_repo,
+        estructura_nm_repository=estructura_nm_repo,
+        referencia_fk_repository=referencia_fk_repo,
     )
 
 

@@ -124,38 +124,17 @@ def test_caso_1_modelo_principal_exitoso_primer_intento():
     assert proveedor.modelos_llamados == ["gemini-3.6-flash"]
 
 
-# Caso 2: Reintento técnico único en modelo principal tiene éxito tras 1 fallo transitorio
-def test_caso_2_reintento_tecnico_exitoso_en_modelo_principal():
+# Caso 2: Fallo 429 (Resource Exhausted / Quota Exceeded) en modelo principal pasa inmediatamente a fallback sin reintentos
+def test_caso_2_fallo_429_pasa_inmediatamente_a_fallback():
     proveedor = FakeProveedorIa({
-        "gemini-3.6-flash": [
-            ProveedorIaRecuperableException("Timeout 504"),
-            ResultadoProveedorIa(texto_respuesta="éxito en reintento", modelo="gemini-3.6-flash"),
-        ]
+        "gemini-3.6-flash": ProveedorIaRecuperableException("Rate limit 429: Quota exceeded"),
+        "gemini-3.5-flash-lite": ResultadoProveedorIa(texto_respuesta="éxito en fallback inmediato", modelo="gemini-3.5-flash-lite"),
     })
-    coordinador = EstrategiaModelosGemini(proveedor, retry_backoff_ms=0)
-
-    resultado = coordinador.ejecutar_con_fallback(
-        prompt_sistema="system",
-        mensaje_usuario="crea clase Cliente",
+    coordinador = EstrategiaModelosGemini(
+        proveedor,
+        modelos=("gemini-3.6-flash", "gemini-3.5-flash-lite"),
+        retry_backoff_ms=0,
     )
-
-    assert resultado.modelo == "gemini-3.6-flash"
-    assert resultado.texto_respuesta == "éxito en reintento"
-    assert resultado.intentos == 2
-    assert resultado.fallback_utilizado is False
-    assert proveedor.modelos_llamados == ["gemini-3.6-flash", "gemini-3.6-flash"]
-
-
-# Caso 3: Fallback a gemini-3.5-flash-lite cuando el modelo principal agota su reintento
-def test_caso_3_fallback_a_modelo_secundario_tras_agotar_reintento():
-    proveedor = FakeProveedorIa({
-        "gemini-3.6-flash": [
-            ProveedorIaRecuperableException("Rate limit 429"),
-            ProveedorIaRecuperableException("Rate limit 429 (retry)"),
-        ],
-        "gemini-3.5-flash-lite": ResultadoProveedorIa(texto_respuesta="éxito en fallback", modelo="gemini-3.5-flash-lite"),
-    })
-    coordinador = EstrategiaModelosGemini(proveedor, retry_backoff_ms=0)
 
     resultado = coordinador.ejecutar_con_fallback(
         prompt_sistema="system",
@@ -163,16 +142,38 @@ def test_caso_3_fallback_a_modelo_secundario_tras_agotar_reintento():
     )
 
     assert resultado.modelo == "gemini-3.5-flash-lite"
-    assert resultado.texto_respuesta == "éxito en fallback"
+    assert resultado.texto_respuesta == "éxito en fallback inmediato"
+    assert resultado.intentos == 2
     assert resultado.fallback_utilizado is True
-    assert proveedor.modelos_llamados == [
-        "gemini-3.6-flash",
-        "gemini-3.6-flash",
-        "gemini-3.5-flash-lite",
-    ]
+    # Exactamente 1 intento por modelo, sin repetir gemini-3.6-flash
+    assert proveedor.modelos_llamados == ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
 
 
-# Caso 4: Circuit breaker abre tras 2 fallos consecutivos y salta directamente al fallback sin timeout
+# Caso 3: Fallo 504 / Timeout en modelo principal pasa inmediatamente a fallback sin reintentos
+def test_caso_3_fallo_504_timeout_pasa_inmediatamente_a_fallback():
+    proveedor = FakeProveedorIa({
+        "gemini-3.6-flash": ProveedorIaRecuperableException("Timeout 504 Gateway Timeout"),
+        "gemini-3.5-flash-lite": ResultadoProveedorIa(texto_respuesta="éxito en fallback tras timeout", modelo="gemini-3.5-flash-lite"),
+    })
+    coordinador = EstrategiaModelosGemini(
+        proveedor,
+        modelos=("gemini-3.6-flash", "gemini-3.5-flash-lite"),
+        retry_backoff_ms=0,
+    )
+
+    resultado = coordinador.ejecutar_con_fallback(
+        prompt_sistema="system",
+        mensaje_usuario="crea clase Cliente",
+    )
+
+    assert resultado.modelo == "gemini-3.5-flash-lite"
+    assert resultado.texto_respuesta == "éxito en fallback tras timeout"
+    assert resultado.fallback_utilizado is True
+    # Exactamente 1 intento por modelo
+    assert proveedor.modelos_llamados == ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
+
+
+# Caso 4: Circuit breaker abre tras 2 fallos acumulados y salta directamente al fallback sin timeout
 def test_caso_4_circuit_breaker_abre_y_salta_directamente_al_fallback():
     breaker = _obtener_breaker("gemini-3.6-flash")
     breaker.state = CircuitState.OPEN
@@ -181,7 +182,12 @@ def test_caso_4_circuit_breaker_abre_y_salta_directamente_al_fallback():
     proveedor = FakeProveedorIa({
         "gemini-3.5-flash-lite": ResultadoProveedorIa(texto_respuesta="éxito directo en fallback", modelo="gemini-3.5-flash-lite"),
     })
-    coordinador = EstrategiaModelosGemini(proveedor, retry_backoff_ms=0, breaker_cooldown_seconds=60.0)
+    coordinador = EstrategiaModelosGemini(
+        proveedor,
+        modelos=("gemini-3.6-flash", "gemini-3.5-flash-lite"),
+        retry_backoff_ms=0,
+        breaker_cooldown_seconds=60.0,
+    )
 
     resultado = coordinador.ejecutar_con_fallback(
         prompt_sistema="system",
@@ -191,7 +197,7 @@ def test_caso_4_circuit_breaker_abre_y_salta_directamente_al_fallback():
     assert resultado.modelo == "gemini-3.5-flash-lite"
     assert resultado.breaker_abierto is True
     assert resultado.fallback_utilizado is True
-    # gemini-3.6-flash NO fue llamado
+    # gemini-3.6-flash NO fue llamado porque breaker está OPEN
     assert proveedor.modelos_llamados == ["gemini-3.5-flash-lite"]
 
 
@@ -218,13 +224,17 @@ def test_caso_5_auto_recuperacion_half_open_tras_enfriamiento():
     assert proveedor.modelos_llamados == ["gemini-3.6-flash"]
 
 
-# Caso 6: Ambos modelos fallan -> lanza error técnico controlado amigable sin mutaciones
+# Caso 6: Ambos modelos fallan -> lanza error técnico controlado 503 sin mutaciones
 def test_caso_6_ambos_modelos_fallan_lanza_error_recuperable():
     proveedor = FakeProveedorIa({
-        "gemini-3.6-flash": ProveedorIaRecuperableException("503 Service Unavailable"),
+        "gemini-3.6-flash": ProveedorIaRecuperableException("429 Quota Exceeded"),
         "gemini-3.5-flash-lite": ProveedorIaRecuperableException("503 Service Unavailable"),
     })
-    coordinador = EstrategiaModelosGemini(proveedor, retry_backoff_ms=0)
+    coordinador = EstrategiaModelosGemini(
+        proveedor,
+        modelos=("gemini-3.6-flash", "gemini-3.5-flash-lite"),
+        retry_backoff_ms=0,
+    )
 
     with pytest.raises(ProveedorIaRecuperableException) as exc_info:
         coordinador.ejecutar_con_fallback(
@@ -232,7 +242,9 @@ def test_caso_6_ambos_modelos_fallan_lanza_error_recuperable():
             mensaje_usuario="crea clase Cliente",
         )
 
-    assert "DRAWI no pudo procesar la solicitud en este momento" in str(exc_info.value) or "503" in str(exc_info.value)
+    assert "DRAWI no pudo procesar la solicitud en este momento" in str(exc_info.value) or "503" in str(exc_info.value) or "429" in str(exc_info.value)
+    # Máximo 1 intento por modelo
+    assert proveedor.modelos_llamados == ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
 
 
 # Caso 7: Error no recuperable (401/403) no reintenta ni realiza fallback
@@ -272,18 +284,19 @@ def test_caso_8_excepcion_dominio_sin_fallback_ni_breaker_increment():
     assert breaker.state == CircuitState.CLOSED
 
 
-# Caso Adicional: Transcripción de audio con fallback y retry
+# Caso Adicional: Transcripción de audio con fallback inmediato ante 429
 def test_transcripcion_audio_fallback_secuencial():
     proveedor = FakeProveedorIa(
         respuestas_audio_por_modelo={
-            "gemini-3.6-flash": [
-                ProveedorIaRecuperableException("429 rate limit"),
-                ProveedorIaRecuperableException("429 retry fail"),
-            ],
+            "gemini-3.6-flash": ProveedorIaRecuperableException("429 rate limit"),
             "gemini-3.5-flash-lite": "texto transcrito con exito",
         }
     )
-    coordinador = EstrategiaModelosGemini(proveedor, retry_backoff_ms=0)
+    coordinador = EstrategiaModelosGemini(
+        proveedor,
+        modelos=("gemini-3.6-flash", "gemini-3.5-flash-lite"),
+        retry_backoff_ms=0,
+    )
 
     resultado = coordinador.transcribir_con_fallback(
         contenido_audio=b"dummy_bytes",
@@ -294,23 +307,23 @@ def test_transcripcion_audio_fallback_secuencial():
     assert resultado == "texto transcrito con exito"
     assert proveedor.llamadas_audio == [
         "gemini-3.6-flash",
-        "gemini-3.6-flash",
         "gemini-3.5-flash-lite",
     ]
 
 
-# Caso Adicional: Análisis de imagen con fallback secuencial y retry
+# Caso Adicional: Análisis de imagen con fallback inmediato ante 503 / 429
 def test_analisis_imagen_fallback_secuencial():
     proveedor = FakeProveedorIa(
         respuestas_imagen_por_modelo={
-            "gemini-3.6-flash": [
-                ProveedorIaRecuperableException("503 High Demand"),
-                ProveedorIaRecuperableException("503 High Demand (retry)"),
-            ],
+            "gemini-3.6-flash": ProveedorIaRecuperableException("503 High Demand"),
             "gemini-3.5-flash-lite": '{"clases": [{"nombre": "Factura", "referencia_semantica": "c1", "atributos": []}], "relaciones": []}',
         }
     )
-    coordinador = EstrategiaModelosGemini(proveedor, retry_backoff_ms=0)
+    coordinador = EstrategiaModelosGemini(
+        proveedor,
+        modelos=("gemini-3.6-flash", "gemini-3.5-flash-lite"),
+        retry_backoff_ms=0,
+    )
 
     resultado = coordinador.analizar_imagen_con_fallback(
         contenido_imagen=b"dummy_image_bytes",
@@ -321,26 +334,23 @@ def test_analisis_imagen_fallback_secuencial():
     assert "Factura" in resultado
     assert proveedor.llamadas_imagen == [
         "gemini-3.6-flash",
-        "gemini-3.6-flash",
         "gemini-3.5-flash-lite",
     ]
 
 
-# Caso Adicional: Ambos modelos fallan en análisis de imagen (503) lanza ProveedorIaRecuperableException
+# Caso Adicional: Ambos modelos fallan en análisis de imagen (503) lanza ProveedorIaRecuperableException (máximo 1 intento por modelo)
 def test_analisis_imagen_ambos_modelos_503_lanza_recuperable():
     proveedor = FakeProveedorIa(
         respuestas_imagen_por_modelo={
-            "gemini-3.6-flash": [
-                ProveedorIaRecuperableException("503 High Demand"),
-                ProveedorIaRecuperableException("503 High Demand retry"),
-            ],
-            "gemini-3.5-flash-lite": [
-                ProveedorIaRecuperableException("503 High Demand fallback"),
-                ProveedorIaRecuperableException("503 High Demand fallback retry"),
-            ],
+            "gemini-3.6-flash": ProveedorIaRecuperableException("429 Quota Exceeded"),
+            "gemini-3.5-flash-lite": ProveedorIaRecuperableException("503 High Demand fallback"),
         }
     )
-    coordinador = EstrategiaModelosGemini(proveedor, retry_backoff_ms=0)
+    coordinador = EstrategiaModelosGemini(
+        proveedor,
+        modelos=("gemini-3.6-flash", "gemini-3.5-flash-lite"),
+        retry_backoff_ms=0,
+    )
 
     with pytest.raises(ProveedorIaRecuperableException) as exc_info:
         coordinador.analizar_imagen_con_fallback(
@@ -349,8 +359,9 @@ def test_analisis_imagen_ambos_modelos_503_lanza_recuperable():
             prompt_estructural="prompt",
         )
 
-    assert "DRAWI no pudo procesar" in str(exc_info.value) or "503" in str(exc_info.value)
-    assert len(proveedor.llamadas_imagen) == 4
+    assert "DRAWI no pudo procesar" in str(exc_info.value) or "503" in str(exc_info.value) or "429" in str(exc_info.value)
+    # Exactamente 2 llamadas en total (1 por modelo)
+    assert proveedor.llamadas_imagen == ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
 
 
 # Caso Adicional: Error 400 no recuperable en análisis de imagen se propaga inmediatamente sin reintentos ni fallback
@@ -375,5 +386,39 @@ def test_analisis_imagen_error_400_no_recuperable_inmediato():
     assert proveedor.llamadas_imagen == ["gemini-3.6-flash"]
     assert breaker.consecutive_failures == 0
     assert breaker.state == CircuitState.CLOSED
+
+
+# Caso 8 Modelos: Cascada completa por orden de prioridad ante fallos recuperables
+def test_cascada_completa_8_modelos_fallback():
+    assert len(MODELOS_GEMINI_ORDENADOS) == 8
+    assert MODELOS_GEMINI_ORDENADOS[0] == "gemini-3.6-flash"
+    assert MODELOS_GEMINI_ORDENADOS[-1] == "gemini-2.5-flash-lite"
+
+    # Los primeros 7 modelos fallan por 429/503/timeout
+    respuestas = {
+        m: ProveedorIaRecuperableException(f"Error temporal en {m}")
+        for m in MODELOS_GEMINI_ORDENADOS[:7]
+    }
+    # El 8vo modelo (gemini-2.5-flash-lite) responde con éxito
+    respuestas[MODELOS_GEMINI_ORDENADOS[7]] = ResultadoProveedorIa(
+        texto_respuesta="respuesta final del 8vo modelo",
+        modelo=MODELOS_GEMINI_ORDENADOS[7],
+    )
+
+    proveedor = FakeProveedorIa(respuestas)
+    coordinador = EstrategiaModelosGemini(proveedor, retry_backoff_ms=0)
+    assert len(coordinador.modelos) == 8
+
+    resultado = coordinador.ejecutar_con_fallback(
+        prompt_sistema="system",
+        mensaje_usuario="crea clase Producto",
+    )
+
+    assert resultado.modelo == "gemini-2.5-flash-lite"
+    assert resultado.texto_respuesta == "respuesta final del 8vo modelo"
+    assert resultado.fallback_utilizado is True
+    assert resultado.intentos == 8
+    assert proveedor.modelos_llamados == list(MODELOS_GEMINI_ORDENADOS)
+
 
 

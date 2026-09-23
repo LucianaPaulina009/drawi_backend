@@ -48,4 +48,7 @@ from app.modules.gestion_proyectos.infrastructure.persistence.models.proyecto_mo
 from app.modules.inteligencia_artificial.infrastructure.persistence.models.interaccion_ia_model import (
     InteraccionIaModel,
 )
+from app.modules.generacion_backend.infrastructure.persistence.models.generacion_backend_model import (
+    GeneracionBackendModel,
+)
 from app.shared.infrastructure.db.better_auth import BetterAuthUser

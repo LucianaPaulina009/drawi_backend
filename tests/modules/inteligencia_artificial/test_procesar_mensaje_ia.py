@@ -96,6 +96,7 @@ def _crear_entorno(
     session: Session,
     respuesta_json: str | None = None,
     respuestas_por_modelo: dict[str, ResultadoProveedorIa | Exception] | None = None,
+    modelos: tuple[str, ...] | None = None,
 ):
     uid = f"user-proc-{uuid4().hex[:6]}"
     usuario = BetterAuthUser(id=uid, name="Proc", email=f"{uid}@drawi.com", email_verified=True)
@@ -128,7 +129,10 @@ def _crear_entorno(
         respuesta_json=respuesta_json or '{"respuesta_usuario": "Respuesta simulada", "acciones": []}',
         respuestas_por_modelo=respuestas_por_modelo,
     )
-    coordinador = EstrategiaModelosGemini(fake_prov, retry_backoff_ms=0)
+    modelos_coordinador = modelos
+    if modelos_coordinador is None and respuestas_por_modelo is not None:
+        modelos_coordinador = tuple(respuestas_por_modelo.keys())
+    coordinador = EstrategiaModelosGemini(fake_prov, retry_backoff_ms=0, modelos=modelos_coordinador)
 
     from app.modules.diagramas.application.services.idempotencia_diagrama import IdempotenciaDiagramaService
     from app.modules.diagramas.application.use_cases.estructura_relacion_nm.crear_estructura_relacion_nm import (
@@ -442,3 +446,159 @@ def test_procesar_mensaje_ia_crea_relacion_nm_con_atributo_en_intermedia(session
 
     relaciones = r_repo.listar_por_diagrama(diagrama.id)
     assert len(relaciones) == 2
+
+
+def test_procesar_mensaje_ia_creacion_clase_con_pk_explicito(session: Session):
+    respuesta_gemini = """{
+      "respuesta_usuario": "Clase Producto creada exitosamente.",
+      "acciones": [
+        {
+          "tipo": "crear_clase",
+          "referencia": "producto",
+          "nombre": "Producto"
+        },
+        {
+          "tipo": "crear_atributo",
+          "clase_referencia": "producto",
+          "nombre": "id",
+          "tipo_dato": "integer",
+          "es_llave_primaria": true
+        },
+        {
+          "tipo": "crear_atributo",
+          "clase_referencia": "producto",
+          "nombre": "id_producto",
+          "tipo_dato": "integer"
+        },
+        {
+          "tipo": "crear_atributo",
+          "clase_referencia": "producto",
+          "nombre": "nombre",
+          "tipo_dato": "varchar"
+        },
+        {
+          "tipo": "crear_atributo",
+          "clase_referencia": "producto",
+          "nombre": "precio",
+          "tipo_dato": "decimal"
+        }
+      ]
+    }"""
+
+    use_case, usuario, diagrama, _, c_repo, a_repo, _, _, _ = _crear_entorno(
+        session, respuesta_json=respuesta_gemini
+    )
+
+    interaccion = use_case.execute(
+        ProcesarMensajeIaCommand(
+            usuario_id=usuario.id,
+            diagrama_id=diagrama.id,
+            texto="Crea la clase Producto con id, nombre y precio",
+            clave_idempotencia=uuid4(),
+        )
+    )
+
+    assert interaccion.estado == EstadoInteraccionIa.COMPLETADO
+    clases = c_repo.listar_por_diagrama(diagrama.id)
+    assert len(clases) == 1
+    prod = clases[0]
+    assert prod.nombre == "Producto"
+
+    attrs = a_repo.listar_por_clase(prod.id)
+    nombres_attrs = [a.nombre for a in attrs]
+    # id (PK del sistema), nombre, precio (id_producto e id duplicado fueron filtrados)
+    assert "id" in nombres_attrs
+    assert "nombre" in nombres_attrs
+    assert "precio" in nombres_attrs
+    assert len(attrs) == 3
+
+
+def test_procesar_mensaje_ia_nm_con_fks_redundantes(session: Session):
+    from app.modules.diagramas.domain.value_objects.procedencia_atributo import (
+        ProcedenciaAtributo,
+    )
+    from app.modules.diagramas.infrastructure.persistence.models.atributo_model import (
+        AtributoModel,
+    )
+    from app.modules.diagramas.infrastructure.persistence.models.clase_model import (
+        ClaseModel,
+    )
+
+    respuesta_gemini = """{
+      "respuesta_usuario": "Relación N:M creada con tabla intermedia Producto_Venta.",
+      "acciones": [
+        {
+          "tipo": "crear_estructura_nm",
+          "referencia_intermedia": "pv",
+          "clase_origen_referencia": "Producto",
+          "clase_destino_referencia": "Venta",
+          "nombre_intermedia": "Producto_Venta"
+        },
+        {
+          "tipo": "crear_atributo",
+          "clase_referencia": "pv",
+          "nombre": "id",
+          "es_llave_primaria": true
+        },
+        {
+          "tipo": "crear_atributo",
+          "clase_referencia": "pv",
+          "nombre": "id_producto",
+          "tipo_dato": "integer"
+        },
+        {
+          "tipo": "crear_atributo",
+          "clase_referencia": "pv",
+          "nombre": "id_venta",
+          "tipo_dato": "integer"
+        },
+        {
+          "tipo": "crear_atributo",
+          "clase_referencia": "pv",
+          "nombre": "cantidad",
+          "tipo_dato": "integer"
+        }
+      ]
+    }"""
+
+    use_case, usuario, diagrama, _, c_repo, a_repo, r_repo, nm_repo, _ = _crear_entorno(
+        session, respuesta_json=respuesta_gemini
+    )
+
+    # Crear Producto y Venta
+    c1 = ClaseModel(id_diagrama=diagrama.id, nombre="Producto", posicion_x=100.0, posicion_y=100.0, ancho=280.0)
+    c2 = ClaseModel(id_diagrama=diagrama.id, nombre="Venta", posicion_x=500.0, posicion_y=100.0, ancho=280.0)
+    session.add(c1)
+    session.add(c2)
+    session.commit()
+
+    a1 = AtributoModel(id_clase=c1.id, nombre="id", tipo_dato="integer", orden_de_posicion=1, es_llave_primaria=True, permite_nulo=False, es_unico=True, procedencia=ProcedenciaAtributo.SISTEMA_CLASE.value)
+    a2 = AtributoModel(id_clase=c2.id, nombre="id", tipo_dato="integer", orden_de_posicion=1, es_llave_primaria=True, permite_nulo=False, es_unico=True, procedencia=ProcedenciaAtributo.SISTEMA_CLASE.value)
+    session.add(a1)
+    session.add(a2)
+    session.commit()
+
+    interaccion = use_case.execute(
+        ProcesarMensajeIaCommand(
+            usuario_id=usuario.id,
+            diagrama_id=diagrama.id,
+            texto="Crea relacion N:M entre Producto y Venta con tabla intermedia Producto_Venta y atributo cantidad",
+            clave_idempotencia=uuid4(),
+        )
+    )
+
+    assert interaccion.estado == EstadoInteraccionIa.COMPLETADO
+    clases = c_repo.listar_por_diagrama(diagrama.id)
+    assert len(clases) == 3
+    intermedia = next((c for c in clases if c.nombre == "Producto_Venta"), None)
+    assert intermedia is not None
+
+    attrs = a_repo.listar_por_clase(intermedia.id)
+    nombres = [a.nombre for a in attrs]
+    # id, producto_id, venta_id, cantidad
+    assert "id" in nombres
+    assert "producto_id" in nombres
+    assert "venta_id" in nombres
+    assert "cantidad" in nombres
+    assert len(attrs) == 4
+

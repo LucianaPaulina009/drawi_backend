@@ -80,3 +80,56 @@ def test_listar_interacciones_ia_multi_usuario_mismo_diagrama(session: Session):
     # Usuario ajeno sin permisos en el proyecto no puede listar
     with pytest.raises(ProyectoNoEncontradoException):
         handler.execute(ListarInteraccionesIaQuery(usuario_id=u_ajeno.id, diagrama_id=diagrama_a.id))
+
+
+def test_listar_interacciones_ia_paginacion_offset_y_limit(session: Session):
+    usuario = BetterAuthUser(id="user-paginacion", name="Paginador", email="pag@drawi.com", email_verified=True)
+    session.add(usuario)
+    session.commit()
+
+    proyecto = ProyectoModel(propietario_id=usuario.id, nombre="Proy Paginado", color="verde", icono="caja", slug="proy-pag")
+    session.add(proyecto)
+    session.commit()
+
+    diagrama = DiagramaModel(id_proyecto=proyecto.id, nombre="Lienzo Chat", numero=1)
+    session.add(diagrama)
+    session.commit()
+
+    p_repo = SQLModelProyectoRepository(session)
+    d_repo = SQLModelDiagramaRepository(session)
+    i_repo = SQLModelInteraccionIaRepository(session)
+
+    # Crear 8 interacciones secuenciales (m0 a m7)
+    for idx in range(8):
+        inter = InteraccionIa.crear(
+            id_usuario=usuario.id,
+            id_diagrama=diagrama.id,
+            clave_idempotencia=uuid4(),
+            entrada_usuario=f"Mensaje {idx}",
+        )
+        i_repo.guardar(inter)
+    session.commit()
+
+    handler = ListarInteraccionesIaQueryHandler(p_repo, d_repo, i_repo)
+
+    # Página 1: los 5 más recientes (mensajes 3, 4, 5, 6, 7 en orden cronológico)
+    p1 = handler.execute(ListarInteraccionesIaQuery(usuario_id=usuario.id, diagrama_id=diagrama.id, limite=5, offset=0))
+    assert len(p1) == 5
+    assert p1.total == 8
+    assert p1.hay_mas is True
+    assert p1[0].entrada_usuario == "Mensaje 3"
+    assert p1[-1].entrada_usuario == "Mensaje 7"
+
+    # Página 2: los siguientes 3 anteriores (mensajes 0, 1, 2 en orden cronológico)
+    p2 = handler.execute(ListarInteraccionesIaQuery(usuario_id=usuario.id, diagrama_id=diagrama.id, limite=5, offset=5))
+    assert len(p2) == 3
+    assert p2.total == 8
+    assert p2.hay_mas is False
+    assert p2[0].entrada_usuario == "Mensaje 0"
+    assert p2[-1].entrada_usuario == "Mensaje 2"
+
+    # Página 3: offset más allá del total
+    p3 = handler.execute(ListarInteraccionesIaQuery(usuario_id=usuario.id, diagrama_id=diagrama.id, limite=5, offset=10))
+    assert len(p3) == 0
+    assert p3.total == 8
+    assert p3.hay_mas is False

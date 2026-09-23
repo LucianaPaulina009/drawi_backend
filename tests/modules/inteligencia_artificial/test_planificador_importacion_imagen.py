@@ -166,9 +166,10 @@ def test_planificador_reconciliacion_clase_existente_exacta():
     assert len(clases_a_crear) == 1
     assert clases_a_crear[0].nombre == "Perfil"
 
-    # Atributo telefono de la clase existente debe estar en omitidos (no agregar silenciosamente)
-    assert len(plan.atributos_omitidos) == 1
-    assert "telefono" in plan.atributos_omitidos[0]
+    # Atributo telefono de la clase existente es reconciliado y agregado para completar la entidad
+    attrs_creados = [a for a in plan.acciones if isinstance(a, AccionCrearAtributoSchema)]
+    assert any(a.nombre == "telefono" and a.clase_referencia == "ref_u" for a in attrs_creados)
+    assert len(plan.atributos_omitidos) == 0
 
 
 def test_planificador_relacion_nm():
@@ -1140,4 +1141,152 @@ def test_planificador_nm_detectada_estructuralmente_sin_relacion_directa():
     assert len(clases) == 2
     nombres_clases = {c.nombre for c in clases}
     assert nombres_clases == {"Estudiante", "Curso"}
+
+
+def test_planificador_caso_usuario_producto_venta_hola_agregacion_y_nm():
+    """
+    Verifica el escenario reportado por el usuario:
+    - Producto (id, nombre, precio, imagen)
+    - Venta (id, fecha)
+    - Hola (id)
+    - Producto_Venta (id, producto_id, venta_id, cantidad)
+    - Relación N:M entre Producto y Venta mediante Producto_Venta
+    - Relación de agregación entre Hola y Venta
+    - Comportamiento esperado:
+      * Todos los IDs/PKs se ignoran (las clases nacen con su 'id' PK por defecto).
+      * Las FKs de Producto_Venta se ignoran (se construyen vía CrearEstructuraNm).
+      * Solo 'cantidad' se crea como atributo en Producto_Venta.
+      * Producto recibe 'nombre', 'precio', 'imagen'.
+      * Venta recibe 'fecha'.
+      * Hola no recibe atributos extra.
+      * Se planifica CrearRelacion (agregación) entre Hola y Venta.
+    """
+    diag_rec = DiagramaReconocidoIa(
+        clases=[
+            ClaseReconocidaIa(
+                referencia_semantica="ref_prod",
+                nombre="Producto",
+                atributos=[
+                    AtributoReconocidoIa(nombre="id", tipo_detectado="integer", es_pk=True),
+                    AtributoReconocidoIa(nombre="nombre", tipo_detectado="varchar", es_pk=False),
+                    AtributoReconocidoIa(nombre="precio", tipo_detectado="decimal", es_pk=False),
+                    AtributoReconocidoIa(nombre="imagen", tipo_detectado="varchar", es_pk=False),
+                ],
+                posicion_relativa_x=0.1,
+                posicion_relativa_y=0.2,
+            ),
+            ClaseReconocidaIa(
+                referencia_semantica="ref_venta",
+                nombre="Venta",
+                atributos=[
+                    AtributoReconocidoIa(nombre="id", tipo_detectado="integer", es_pk=True),
+                    AtributoReconocidoIa(nombre="fecha", tipo_detectado="timestamp", es_pk=False),
+                ],
+                posicion_relativa_x=0.8,
+                posicion_relativa_y=0.2,
+            ),
+            ClaseReconocidaIa(
+                referencia_semantica="ref_hola",
+                nombre="Hola",
+                atributos=[
+                    AtributoReconocidoIa(nombre="id", tipo_detectado="integer", es_pk=True),
+                ],
+                posicion_relativa_x=0.8,
+                posicion_relativa_y=0.7,
+            ),
+            ClaseReconocidaIa(
+                referencia_semantica="ref_pv",
+                nombre="Producto_Venta",
+                atributos=[
+                    AtributoReconocidoIa(nombre="id", tipo_detectado="integer", es_pk=True),
+                    AtributoReconocidoIa(nombre="producto_id", tipo_detectado="integer", es_fk=True, fk_destino_ref="ref_prod"),
+                    AtributoReconocidoIa(nombre="venta_id", tipo_detectado="integer", es_fk=True, fk_destino_ref="ref_venta"),
+                    AtributoReconocidoIa(nombre="cantidad", tipo_detectado="integer", es_pk=False, es_fk=False),
+                ],
+                posicion_relativa_x=0.45,
+                posicion_relativa_y=0.2,
+            ),
+        ],
+        relaciones=[
+            RelacionReconocidaIa(
+                origen_ref="ref_prod",
+                destino_ref="ref_pv",
+                tipo="asociacion",
+                cardinalidad_origen="1",
+                cardinalidad_destino="0..*",
+            ),
+            RelacionReconocidaIa(
+                origen_ref="ref_venta",
+                destino_ref="ref_pv",
+                tipo="asociacion",
+                cardinalidad_origen="1",
+                cardinalidad_destino="0..*",
+            ),
+            RelacionReconocidaIa(
+                origen_ref="ref_hola",
+                destino_ref="ref_venta",
+                tipo="agregacion",
+                cardinalidad_origen="0..*",
+                cardinalidad_destino="1",
+            ),
+        ],
+    )
+
+    posiciones = {
+        "ref_prod": (100, 100),
+        "ref_venta": (700, 100),
+        "ref_hola": (700, 400),
+        "ref_pv": (400, 100),
+    }
+
+    plan = PlanificadorImportacionImagen.construir_plan(
+        diagrama_reconocido=diag_rec,
+        diagrama_existente=None,
+        posiciones_layout=posiciones,
+    )
+
+    # 1. Clases creadas: Producto, Venta, Hola (Producto_Venta se crea vía CrearEstructuraNm)
+    clases_creadas = [a for a in plan.acciones if isinstance(a, AccionCrearClaseSchema)]
+    assert len(clases_creadas) == 3
+    nombres_clases = {c.nombre for c in clases_creadas}
+    assert nombres_clases == {"Producto", "Venta", "Hola"}
+
+    # 2. Estructura NM creada para Producto_Venta
+    acciones_nm = [a for a in plan.acciones if isinstance(a, AccionCrearEstructuraNmSchema)]
+    assert len(acciones_nm) == 1
+    assert acciones_nm[0].nombre_intermedia == "Producto_Venta"
+    assert acciones_nm[0].referencia_intermedia == "ref_pv"
+
+    # 3. Atributos de clases base (Producto: nombre, precio, imagen; Venta: fecha; Hola: ninguno)
+    attrs_regulares = [
+        a for a in plan.acciones
+        if isinstance(a, AccionCrearAtributoSchema) and a.clase_referencia != "ref_pv"
+    ]
+    assert len(attrs_regulares) == 4
+    attrs_prod = {a.nombre for a in attrs_regulares if a.clase_referencia == "ref_prod"}
+    assert attrs_prod == {"nombre", "precio", "imagen"}
+    assert "id" not in attrs_prod
+
+    attrs_venta = {a.nombre for a in attrs_regulares if a.clase_referencia == "ref_venta"}
+    assert attrs_venta == {"fecha"}
+    assert "id" not in attrs_venta
+
+    attrs_hola = [a for a in attrs_regulares if a.clase_referencia == "ref_hola"]
+    assert len(attrs_hola) == 0
+
+    # 4. Atributos de clase intermedia: SOLO 'cantidad' (NO id, NO producto_id, NO venta_id)
+    attrs_intermedia = [
+        a for a in plan.acciones
+        if isinstance(a, AccionCrearAtributoSchema) and a.clase_referencia == "ref_pv"
+    ]
+    assert len(attrs_intermedia) == 1
+    assert attrs_intermedia[0].nombre == "cantidad"
+
+    # 5. Relación de agregación planificada
+    rels = [a for a in plan.acciones if isinstance(a, AccionCrearRelacionSchema)]
+    assert len(rels) == 1
+    assert rels[0].tipo_relacion == "agregacion"
+    assert rels[0].clase_origen_referencia == "ref_hola"
+    assert rels[0].clase_destino_referencia == "ref_venta"
+
 

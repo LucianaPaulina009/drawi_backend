@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from fastapi import HTTPException
-
 from app.modules.diagramas.application.services.cascadas_diagrama import (
     CascadasDiagramaService,
 )
@@ -15,12 +13,26 @@ from app.modules.diagramas.application.services.geometria_conectores import (
 from app.modules.diagramas.application.services.idempotencia_diagrama import (
     IdempotenciaDiagramaService,
 )
+from app.modules.diagramas.application.use_cases.estructura_relacion_nm.crear_estructura_relacion_nm import (
+    CrearEstructuraRelacionNmCommand,
+    CrearEstructuraRelacionNmUseCase,
+)
+from app.modules.diagramas.application.use_cases.relacion.crear_relacion import (
+    AtributoFkNuevoCommand,
+    CrearRelacionCommand,
+    CrearRelacionUseCase,
+    MaterializacionFKCommand,
+)
 from app.modules.diagramas.application.validaciones import (
     obtener_diagrama_autorizado,
     validar_actualizacion_atributo,
     validar_creacion_atributo,
 )
-from app.modules.diagramas.domain.entities.atributo import Atributo, NO_DEFINIDO, ProcedenciaAtributo
+from app.modules.diagramas.domain.entities.atributo import (
+    NO_DEFINIDO,
+    Atributo,
+    ProcedenciaAtributo,
+)
 from app.modules.diagramas.domain.entities.clase import Clase
 from app.modules.diagramas.domain.entities.relacion import Relacion
 from app.modules.diagramas.domain.exceptions import (
@@ -32,25 +44,21 @@ from app.modules.diagramas.domain.exceptions import (
     OrdenAtributoFueraDeSecuenciaException,
     RelacionNoEncontradaException,
 )
-from app.modules.diagramas.domain.repositories.atributo_repository import AtributoRepository
+from app.modules.diagramas.domain.repositories.atributo_repository import (
+    AtributoRepository,
+)
 from app.modules.diagramas.domain.repositories.clase_repository import ClaseRepository
-from app.modules.diagramas.domain.repositories.diagrama_repository import DiagramaRepository
+from app.modules.diagramas.domain.repositories.diagrama_repository import (
+    DiagramaRepository,
+)
 from app.modules.diagramas.domain.repositories.estructura_relacion_nm_repository import (
     EstructuraRelacionNmRepository,
 )
 from app.modules.diagramas.domain.repositories.referencia_fk_repository import (
     ReferenciaFKRepository,
 )
-from app.modules.diagramas.domain.repositories.relacion_repository import RelacionRepository
-from app.modules.diagramas.application.use_cases.relacion.crear_relacion import (
-    CrearRelacionCommand,
-    CrearRelacionUseCase,
-    MaterializacionFKCommand,
-    AtributoFkNuevoCommand,
-)
-from app.modules.diagramas.application.use_cases.estructura_relacion_nm.crear_estructura_relacion_nm import (
-    CrearEstructuraRelacionNmCommand,
-    CrearEstructuraRelacionNmUseCase,
+from app.modules.diagramas.domain.repositories.relacion_repository import (
+    RelacionRepository,
 )
 from app.modules.gestion_colaboradores.domain.repositories.colaborador_proyecto_repository import (
     ColaboradorProyectoRepository,
@@ -59,6 +67,7 @@ from app.modules.gestion_proyectos.domain.repositories.proyecto_repository impor
     ProyectoRepository,
 )
 from app.shared.application.ports import UnitOfWork
+from fastapi import HTTPException
 
 
 @dataclass(slots=True)

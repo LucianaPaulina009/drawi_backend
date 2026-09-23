@@ -797,3 +797,132 @@ def test_procesar_imagen_nm_nombre_distinto_e2e_con_atributos_extras(session: Se
     assert len(attrs_ins) == 5  # id, estudiante_id, curso_id, fecha_inscripcion, nota_final
 
 
+def test_procesar_imagen_e2e_caso_usuario_producto_venta_hola_agregacion_y_nm(session: Session):
+    json_respuesta = json.dumps({
+        "clases": [
+            {
+                "referencia_semantica": "ref_prod",
+                "nombre": "Producto",
+                "atributos": [
+                    {"nombre": "id", "tipo_detectado": "integer", "es_pk": True},
+                    {"nombre": "nombre", "tipo_detectado": "varchar", "es_pk": False},
+                    {"nombre": "precio", "tipo_detectado": "decimal", "es_pk": False},
+                    {"nombre": "imagen", "tipo_detectado": "varchar", "es_pk": False},
+                ],
+                "posicion_relativa_x": 0.1,
+                "posicion_relativa_y": 0.2,
+            },
+            {
+                "referencia_semantica": "ref_venta",
+                "nombre": "Venta",
+                "atributos": [
+                    {"nombre": "id", "tipo_detectado": "integer", "es_pk": True},
+                    {"nombre": "fecha", "tipo_detectado": "timestamp", "es_pk": False},
+                ],
+                "posicion_relativa_x": 0.8,
+                "posicion_relativa_y": 0.2,
+            },
+            {
+                "referencia_semantica": "ref_hola",
+                "nombre": "Hola",
+                "atributos": [
+                    {"nombre": "id", "tipo_detectado": "integer", "es_pk": True},
+                ],
+                "posicion_relativa_x": 0.8,
+                "posicion_relativa_y": 0.7,
+            },
+            {
+                "referencia_semantica": "ref_pv",
+                "nombre": "Producto_Venta",
+                "atributos": [
+                    {"nombre": "id", "tipo_detectado": "integer", "es_pk": True},
+                    {"nombre": "producto_id", "tipo_detectado": "integer", "es_fk": True, "fk_destino_ref": "ref_prod"},
+                    {"nombre": "venta_id", "tipo_detectado": "integer", "es_fk": True, "fk_destino_ref": "ref_venta"},
+                    {"nombre": "cantidad", "tipo_detectado": "integer", "es_pk": False, "es_fk": False},
+                ],
+                "posicion_relativa_x": 0.45,
+                "posicion_relativa_y": 0.2,
+            },
+        ],
+        "relaciones": [
+            {
+                "origen_ref": "ref_prod",
+                "destino_ref": "ref_pv",
+                "tipo": "asociacion",
+                "cardinalidad_origen": "1",
+                "cardinalidad_destino": "0..*",
+            },
+            {
+                "origen_ref": "ref_venta",
+                "destino_ref": "ref_pv",
+                "tipo": "asociacion",
+                "cardinalidad_origen": "1",
+                "cardinalidad_destino": "0..*",
+            },
+            {
+                "origen_ref": "ref_hola",
+                "destino_ref": "ref_venta",
+                "tipo": "agregacion",
+                "cardinalidad_origen": "0..*",
+                "cardinalidad_destino": "1",
+            },
+        ],
+        "advertencias": [],
+    })
+
+    env = _crear_entorno_imagen(session, respuesta_json_imagen=json_respuesta)
+
+    cmd = ProcesarImagenDiagramaIaCommand(
+        usuario_id=env["usuario"].id,
+        diagrama_id=env["diagrama"].id,
+        contenido_imagen=PNG_VALIDO_BYTES,
+        mime_type="image/png",
+        nombre_archivo="diagrama_completo.png",
+        clave_idempotencia=uuid4(),
+    )
+
+    interaccion = env["use_case"].execute(cmd)
+    assert interaccion.estado == EstadoInteraccionIa.COMPLETADO
+
+    # 1. Exactamente 4 clases en BD: Producto, Venta, Hola, Producto_Venta
+    clases = env["clase_repo"].listar_por_diagrama(env["diagrama"].id)
+    assert len(clases) == 4
+    nombres_clases = {c.nombre: c for c in clases}
+    assert "Producto" in nombres_clases
+    assert "Venta" in nombres_clases
+    assert "Hola" in nombres_clases
+    assert "Producto_Venta" in nombres_clases
+
+    # 2. Atributos en Producto
+    attrs_prod = env["atributo_repo"].listar_por_clase(nombres_clases["Producto"].id)
+    nombres_prod = {a.nombre for a in attrs_prod}
+    assert nombres_prod == {"id", "nombre", "precio", "imagen"}
+
+    # 3. Atributos en Venta
+    attrs_venta = env["atributo_repo"].listar_por_clase(nombres_clases["Venta"].id)
+    nombres_venta = {a.nombre for a in attrs_venta}
+    assert "id" in nombres_venta
+    assert "fecha" in nombres_venta
+
+    # 4. Atributos en Producto_Venta
+    attrs_pv = env["atributo_repo"].listar_por_clase(nombres_clases["Producto_Venta"].id)
+    nombres_pv = {a.nombre for a in attrs_pv}
+    assert "id" in nombres_pv
+    assert "cantidad" in nombres_pv
+    assert len(attrs_pv) == 4  # id, id_producto, id_venta, cantidad
+
+    # 5. Estructura NM en BD
+    estructuras_nm = env["estructura_nm_repo"].listar_por_diagrama(env["diagrama"].id)
+    assert len(estructuras_nm) == 1
+    assert estructuras_nm[0].id_clase_intermedia == nombres_clases["Producto_Venta"].id
+
+    # 6. Relación de agregación en BD
+    relaciones = env["relacion_repo"].listar_por_diagrama(env["diagrama"].id)
+    assert len(relaciones) == 3  # 2 de la estructura N:M + 1 de agregación
+    rel_agreg = next((r for r in relaciones if r.tipo_relacion == "agregacion"), None)
+    assert rel_agreg is not None
+    assert rel_agreg.id_clase_origen == nombres_clases["Hola"].id
+    assert rel_agreg.id_clase_destino == nombres_clases["Venta"].id
+
+
+

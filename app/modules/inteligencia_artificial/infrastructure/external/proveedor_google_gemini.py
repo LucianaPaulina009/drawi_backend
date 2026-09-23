@@ -34,6 +34,13 @@ class ProveedorGoogleGemini(ProveedorIa):
         )
         self._client: genai.Client | None = None
 
+    def _calcular_timeout_ms(self, timeout_segundos: float | None = None) -> int:
+        """Calcula el timeout en ms asegurando el mínimo de 10.0s (10,000 ms) exigido por Google Gemini API."""
+        seg = timeout_segundos if timeout_segundos is not None else self._timeout_segundos
+        if seg is None:
+            return 10000
+        return max(10000, int(seg * 1000))
+
     def _obtener_cliente(self) -> genai.Client:
         key = (
             self._api_key
@@ -46,7 +53,7 @@ class ProveedorGoogleGemini(ProveedorIa):
             )
         if self._client is None or self._api_key != key:
             self._api_key = key.strip()
-            timeout_ms = int(self._timeout_segundos * 1000) if self._timeout_segundos else 10000
+            timeout_ms = self._calcular_timeout_ms()
             self._client = genai.Client(
                 api_key=self._api_key,
                 http_options=types.HttpOptions(timeout=timeout_ms),
@@ -62,7 +69,7 @@ class ProveedorGoogleGemini(ProveedorIa):
         temperatura: float = 0.2,
     ) -> ResultadoProveedorIa:
         cliente = self._obtener_cliente()
-        timeout_ms = int(self._timeout_segundos * 1000) if self._timeout_segundos else 10000
+        timeout_ms = self._calcular_timeout_ms()
         try:
             config = types.GenerateContentConfig(
                 system_instruction=prompt_sistema,
@@ -145,7 +152,7 @@ class ProveedorGoogleGemini(ProveedorIa):
             "Devuelve únicamente las palabras transcritas."
         )
         timeout_voz = getattr(settings, "IA_TRANSCRIPCION_TIMEOUT_SECONDS", 15.0)
-        timeout_ms = int(timeout_voz * 1000)
+        timeout_ms = self._calcular_timeout_ms(timeout_voz)
         try:
             config = types.GenerateContentConfig(
                 temperature=0.0,
@@ -217,7 +224,7 @@ class ProveedorGoogleGemini(ProveedorIa):
         cliente = self._obtener_cliente()
         mime_base = mime_type.split(";")[0].strip().lower()
         part_imagen = types.Part.from_bytes(data=contenido_imagen, mime_type=mime_base)
-        timeout_ms = int(self._timeout_segundos * 1000) if self._timeout_segundos else 10000
+        timeout_ms = self._calcular_timeout_ms()
         try:
             config = types.GenerateContentConfig(
                 temperature=0.1,
@@ -272,6 +279,84 @@ class ProveedorGoogleGemini(ProveedorIa):
         except Exception as e:
             logger.error(
                 "Error inesperado al analizar imagen con Gemini (modelo=%s): %s",
+                modelo,
+                str(e),
+            )
+            raise ProveedorIaRecuperableException(
+                f"Error inesperado con el modelo {modelo}: {str(e)}"
+            ) from e
+
+    def generar_respuesta_audio(
+        self,
+        *,
+        modelo: str,
+        prompt_sistema: str,
+        contenido_audio: bytes,
+        mime_type: str,
+        temperatura: float = 0.2,
+    ) -> ResultadoProveedorIa:
+        cliente = self._obtener_cliente()
+        mime_base = mime_type.split(";")[0].strip().lower()
+        part_audio = types.Part.from_bytes(data=contenido_audio, mime_type=mime_base)
+        timeout_ms = int(self._timeout_segundos * 1000) if self._timeout_segundos else 15000
+        try:
+            config = types.GenerateContentConfig(
+                temperature=temperatura,
+                response_mime_type="application/json",
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                http_options=types.HttpOptions(timeout=timeout_ms),
+            )
+            respuesta = cliente.models.generate_content(
+                model=modelo,
+                contents=[part_audio, prompt_sistema],
+                config=config,
+            )
+            texto = (respuesta.text or "").strip()
+            return ResultadoProveedorIa(
+                texto_respuesta=texto,
+                modelo=modelo,
+            )
+        except errors.APIError as e:
+            codigo = getattr(e, "code", None)
+            mensaje = getattr(e, "message", str(e))
+            logger.error(
+                "Error en llamada de audio Gemini API (modelo=%s, status=%s): %s",
+                modelo,
+                codigo,
+                mensaje,
+            )
+            if (
+                codigo in (429, 500, 502, 503, 504, 404)
+                or "rate limit" in mensaje.lower()
+                or "quota" in mensaje.lower()
+                or "unavailable" in mensaje.lower()
+                or "high demand" in mensaje.lower()
+                or "resource exhausted" in mensaje.lower()
+                or "overloaded" in mensaje.lower()
+                or "timeout" in mensaje.lower()
+            ):
+                raise ProveedorIaRecuperableException(
+                    f"Error temporal del proveedor Gemini ({codigo}): {mensaje}"
+                ) from e
+            if codigo in (401, 403):
+                raise ProveedorIaNoRecuperableException(
+                    f"Error de autorización en Gemini: {mensaje}"
+                ) from e
+            raise ProveedorIaNoRecuperableException(
+                f"Error no recuperable de Gemini ({codigo}): {mensaje}"
+            ) from e
+        except (TimeoutError, errors.ClientError, httpx.TimeoutException, httpx.RequestError) as e:
+            logger.error(
+                "Timeout o error de conexión con Gemini en audio (modelo=%s): %s",
+                modelo,
+                str(e),
+            )
+            raise ProveedorIaRecuperableException(
+                f"Timeout o error de conexión con Gemini ({type(e).__name__}): {str(e)}"
+            ) from e
+        except Exception as e:
+            logger.error(
+                "Error inesperado en audio con Gemini (modelo=%s): %s",
                 modelo,
                 str(e),
             )

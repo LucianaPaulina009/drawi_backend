@@ -255,18 +255,46 @@ def test_interaccion_ia_api_audio_unificado(client: TestClient, session: Session
     session.add(diagrama)
     session.commit()
 
-    class FakeTranscripcionProveedor(ProveedorTranscripcion):
-        def transcribir_audio(self, *, contenido_audio: bytes, mime_type: str, idioma: str | None = None) -> ResultadoTranscripcion:
-            return ResultadoTranscripcion(texto="Crea una clase Factura con total y fecha", idioma="es")
-
     class FakeAudioIaProveedor(ProveedorIa):
         def generar_respuesta(self, *, modelo: str, prompt_sistema: str, mensaje_usuario: str, temperatura: float = 0.2) -> ResultadoProveedorIa:
+            return ResultadoProveedorIa(texto_respuesta="", modelo=modelo)
+
+        def generar_respuesta_audio(
+            self,
+            *,
+            modelo: str,
+            prompt_sistema: str,
+            contenido_audio: bytes,
+            mime_type: str,
+            temperatura: float = 0.2,
+        ) -> ResultadoProveedorIa:
             return ResultadoProveedorIa(
-                texto_respuesta='{"respuesta_usuario": "Clase Factura creada exitosamente.", "acciones": [{"tipo": "crear_clase", "referencia": "factura", "nombre": "Factura", "atributos": [{"nombre": "total", "tipo_dato": "decimal"}, {"nombre": "fecha", "tipo_dato": "date"}]}]}',
+                texto_respuesta='''{
+                  "transcripcion_usuario": "Crea una clase Factura con total y fecha",
+                  "respuesta_usuario": "Clase Factura creada exitosamente.",
+                  "acciones": [
+                    {
+                      "tipo": "crear_clase",
+                      "referencia": "factura",
+                      "nombre": "Factura"
+                    },
+                    {
+                      "tipo": "crear_atributo",
+                      "clase_referencia": "factura",
+                      "nombre": "total",
+                      "tipo_dato": "decimal"
+                    },
+                    {
+                      "tipo": "crear_atributo",
+                      "clase_referencia": "factura",
+                      "nombre": "fecha",
+                      "tipo_dato": "date"
+                    }
+                  ]
+                }''',
                 modelo=modelo,
             )
 
-    set_proveedor_transcripcion_override(FakeTranscripcionProveedor())
     set_proveedor_ia_override(FakeAudioIaProveedor())
 
     clave = str(uuid4())
@@ -297,7 +325,6 @@ def test_interaccion_ia_api_audio_unificado(client: TestClient, session: Session
     assert len(clases) == 1
     assert clases[0].nombre == "Factura"
 
-    set_proveedor_transcripcion_override(None)
     set_proveedor_ia_override(None)
 
 
@@ -323,14 +350,6 @@ def test_interaccion_ia_api_audio_rechaza_archivo_vacio(client: TestClient, sess
 
 
 def test_interaccion_ia_api_audio_rechaza_transcripcion_vacia(client: TestClient, session: Session):
-    from app.modules.inteligencia_artificial.application.ports.providers.proveedor_transcripcion import (
-        ProveedorTranscripcion,
-        ResultadoTranscripcion,
-    )
-    from app.modules.inteligencia_artificial.infrastructure.api.routers.interaccion_ia_router import (
-        set_proveedor_transcripcion_override,
-    )
-
     usuario = BetterAuthUser(id="usuario-propietario-1", name="PropAudioSilencio", email="silencio@drawi.com", email_verified=True)
     session.add(usuario)
     session.commit()
@@ -343,11 +362,25 @@ def test_interaccion_ia_api_audio_rechaza_transcripcion_vacia(client: TestClient
     session.add(diagrama)
     session.commit()
 
-    class FakeSilencioProveedor(ProveedorTranscripcion):
-        def transcribir_audio(self, *, contenido_audio: bytes, mime_type: str, idioma: str | None = None) -> ResultadoTranscripcion:
-            return ResultadoTranscripcion(texto="   ", idioma="es")
+    class FakeSilencioProveedor(ProveedorIa):
+        def generar_respuesta(self, *, modelo: str, prompt_sistema: str, mensaje_usuario: str, temperatura: float = 0.2) -> ResultadoProveedorIa:
+            return ResultadoProveedorIa(texto_respuesta="", modelo=modelo)
 
-    set_proveedor_transcripcion_override(FakeSilencioProveedor())
+        def generar_respuesta_audio(
+            self,
+            *,
+            modelo: str,
+            prompt_sistema: str,
+            contenido_audio: bytes,
+            mime_type: str,
+            temperatura: float = 0.2,
+        ) -> ResultadoProveedorIa:
+            return ResultadoProveedorIa(
+                texto_respuesta='{"transcripcion_usuario": "   ", "respuesta_usuario": "No se detectó voz.", "acciones": []}',
+                modelo=modelo,
+            )
+
+    set_proveedor_ia_override(FakeSilencioProveedor())
 
     res = client.post(
         f"/api/diagramas/{diagrama.id}/interacciones-ia/audio",
@@ -357,7 +390,7 @@ def test_interaccion_ia_api_audio_rechaza_transcripcion_vacia(client: TestClient
     assert res.status_code == 422
     assert "No se detectó contenido comprensible" in res.text
 
-    set_proveedor_transcripcion_override(None)
+    set_proveedor_ia_override(None)
 
 
 

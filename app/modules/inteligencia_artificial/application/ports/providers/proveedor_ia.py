@@ -65,3 +65,20 @@ class ProveedorIa(ABC):
         """
         raise NotImplementedError("analizar_diagrama_imagen no está implementado en este proveedor.")
 
+    def generar_respuesta_audio(
+        self,
+        *,
+        modelo: str,
+        prompt_sistema: str,
+        contenido_audio: bytes,
+        mime_type: str,
+        temperatura: float = 0.2,
+    ) -> ResultadoProveedorIa:
+        """
+        Interpreta un audio multimodal con el prompt dado y produce una respuesta JSON.
+
+        Lanza ProveedorIaRecuperableException en fallos temporales.
+        Lanza ProveedorIaNoRecuperableException en fallos permanentes.
+        """
+        raise NotImplementedError("generar_respuesta_audio no está implementado en este proveedor.")
+

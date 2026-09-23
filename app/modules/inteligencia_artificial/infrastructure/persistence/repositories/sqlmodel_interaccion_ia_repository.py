@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app.modules.inteligencia_artificial.domain.entities.interaccion_ia import (
     InteraccionIa,
@@ -90,6 +90,36 @@ class SQLModelInteraccionIaRepository(InteraccionIaRepository):
         registros = self.bd.exec(sentencia).all()
         # Invertir para preservar orden cronológico de lectura
         return [InteraccionIaMapper.a_dominio(registro) for registro in reversed(registros)]
+
+    def listar_paginado_por_diagrama(
+        self,
+        id_diagrama: UUID,
+        limite: int = 5,
+        offset: int = 0,
+    ) -> tuple[list[InteraccionIa], int]:
+        total_stmt = (
+            select(func.count(InteraccionIaModel.id))
+            .where(
+                InteraccionIaModel.id_diagrama == id_diagrama,
+                InteraccionIaModel.fecha_eliminacion.is_(None),
+            )
+        )
+        total_res = self.bd.exec(total_stmt).one()
+        total = int(total_res) if total_res else 0
+
+        sentencia = (
+            select(InteraccionIaModel)
+            .where(
+                InteraccionIaModel.id_diagrama == id_diagrama,
+                InteraccionIaModel.fecha_eliminacion.is_(None),
+            )
+            .order_by(InteraccionIaModel.fecha_creacion.desc())
+            .offset(offset)
+            .limit(limite)
+        )
+        registros = self.bd.exec(sentencia).all()
+        # Invertir para preservar orden cronológico ascendente (lectura natural de chat)
+        return [InteraccionIaMapper.a_dominio(registro) for registro in reversed(registros)], total
 
     def guardar(self, interaccion: InteraccionIa) -> None:
         sentencia = select(InteraccionIaModel).where(

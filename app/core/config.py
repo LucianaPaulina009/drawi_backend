@@ -86,8 +86,11 @@ class Settings(BaseSettings):
     IA_GEMINI_FALLBACK_MODEL: str = Field(
         default="gemini-3.5-flash-lite"
     )
+    IA_GEMINI_MODELS_CASCADE: str = Field(
+        default="gemini-3.6-flash,gemini-3.5-flash,gemini-3.7-flash,gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-2.5-flash,gemini-2.5-flash-lite"
+    )
     IA_GEMINI_TIMEOUT_SECONDS: float = Field(
-        default=10.0, gt=0
+        default=10.0, ge=10.0
     )
     IA_GEMINI_RETRY_BACKOFF_MS: int = Field(
         default=300, ge=0
@@ -101,6 +104,22 @@ class Settings(BaseSettings):
     IA_HISTORIAL_LIMITE: int = Field(
         default=5, ge=1, le=20
     )
+
+    @property
+    def modelos_gemini_cascada(self) -> tuple[str, ...]:
+        """Lista ordenada de modelos Gemini para fallback."""
+        if not self.IA_GEMINI_MODELS_CASCADE:
+            return (
+                "gemini-3.6-flash",
+                "gemini-3.5-flash",
+                "gemini-3.7-flash",
+                "gemini-3.8-flash",
+                "gemini-3.5-flash-lite",
+                "gemini-3.1-flash-lite",
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-lite",
+            )
+        return tuple(m.strip() for m in self.IA_GEMINI_MODELS_CASCADE.split(",") if m.strip())
     IA_TRANSCRIPCION_IDIOMA: str = Field(default="es")
     IA_TRANSCRIPCION_TIMEOUT_SECONDS: float = Field(
         default=15.0, gt=0

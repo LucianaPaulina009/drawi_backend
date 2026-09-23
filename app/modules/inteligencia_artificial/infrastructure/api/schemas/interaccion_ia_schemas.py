@@ -32,3 +32,7 @@ class ListaInteraccionesIaRead(BaseModel):
 
     items: list[InteraccionIaRead]
     siguiente_cursor: UUID | None = Field(default=None, alias="siguienteCursor")
+    total: int = 0
+    hay_mas: bool = Field(default=False, alias="hayMas")
+    offset: int = 0
+    limit: int = 5

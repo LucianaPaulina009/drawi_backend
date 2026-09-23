@@ -72,11 +72,15 @@ from app.modules.diagramas.domain.repositories.estructura_relacion_nm_repository
 from app.modules.diagramas.domain.repositories.referencia_fk_repository import (
     ReferenciaFKRepository,
 )
+from app.modules.diagramas.domain.value_objects.tipo_dato import TipoDato
 from app.modules.diagramas.domain.repositories.relacion_repository import (
     RelacionRepository,
 )
 from app.modules.inteligencia_artificial.application.services.resolvedor_referencias_ia import (
     ResolvedorReferenciasIa,
+)
+from app.modules.inteligencia_artificial.application.services.servicio_layout_importacion import (
+    ServicioLayoutImportacion,
 )
 from app.modules.inteligencia_artificial.application.services.validador_respuesta_ia import (
     AccionActualizarAtributoSchema,
@@ -167,14 +171,25 @@ class EjecutorPlanIa:
                 relaciones_actuales = self.relacion_repo.listar_por_diagrama(diagrama_id)
 
                 if isinstance(accion, AccionCrearClaseSchema):
-                    pos = accion.posicion or PosicionSchema(
-                        x=150.0 + (indice * 40.0), y=150.0 + (indice * 30.0)
+                    attrs_count = sum(
+                        1
+                        for a in acciones
+                        if isinstance(a, AccionCrearAtributoSchema)
+                        and a.clase_referencia.strip().lower()
+                        in (accion.referencia.strip().lower(), accion.nombre.strip().lower())
+                    )
+                    pos_pref = (accion.posicion.x, accion.posicion.y) if accion.posicion else None
+                    pos_x, pos_y = ServicioLayoutImportacion.calcular_posicion_libre_para_clase(
+                        clases_existentes=clases_actuales,
+                        posicion_preferida=pos_pref,
+                        ancho=accion.ancho or 280.0,
+                        cantidad_atributos=attrs_count,
                     )
                     cmd = CrearClaseCommand(
                         propietario_id=usuario_id,
                         diagrama_id=diagrama_id,
-                        posicion_x=pos.x,
-                        posicion_y=pos.y,
+                        posicion_x=pos_x,
+                        posicion_y=pos_y,
                         ancho=accion.ancho or 280.0,
                         nombre=accion.nombre,
                     )
@@ -278,9 +293,14 @@ class EjecutorPlanIa:
                             raise NotFoundException(res_c.motivo, code="REFERENCIA_NO_ENCONTRADA")
                         id_clase = res_c.id
 
+                    tipo_resuelto = TipoDato.normalizar_o_inferir(
+                        accion.tipo_dato,
+                        nombre_atributo=accion.nombre,
+                    ).value
+
                     datos_attr: dict[str, Any] = {
                         "nombre": accion.nombre,
-                        "tipo_dato": accion.tipo_dato,
+                        "tipo_dato": tipo_resuelto,
                         "longitud": accion.longitud,
                         "precision": accion.precision,
                         "escala": accion.escala,
@@ -327,7 +347,10 @@ class EjecutorPlanIa:
                     if accion.nuevo_nombre is not None:
                         campos["nombre"] = accion.nuevo_nombre
                     if accion.tipo_dato is not None:
-                        campos["tipo_dato"] = accion.tipo_dato
+                        campos["tipo_dato"] = TipoDato.normalizar_o_inferir(
+                            accion.tipo_dato,
+                            nombre_atributo=accion.nuevo_nombre or accion.atributo_referencia,
+                        ).value
                     if accion.longitud is not None:
                         campos["longitud"] = accion.longitud
                     if accion.precision is not None:
@@ -675,11 +698,19 @@ class EjecutorPlanIa:
                     nombre_inter = accion.nombre_intermedia or f"{clase_origen_obj.nombre}_{clase_destino_obj.nombre}"
 
                     if accion.posicion:
-                        pos_x = accion.posicion.x
-                        pos_y = accion.posicion.y
+                        pos_pref_nm = (accion.posicion.x, accion.posicion.y)
                     else:
-                        pos_x = (float(clase_origen_obj.posicion_x) + float(clase_destino_obj.posicion_x)) / 2.0
-                        pos_y = ((float(clase_origen_obj.posicion_y) + float(clase_destino_obj.posicion_y)) / 2.0) + 120.0
+                        pos_pref_nm = (
+                            (float(clase_origen_obj.posicion_x) + float(clase_destino_obj.posicion_x)) / 2.0,
+                            ((float(clase_origen_obj.posicion_y) + float(clase_destino_obj.posicion_y)) / 2.0) + 120.0,
+                        )
+
+                    pos_x, pos_y = ServicioLayoutImportacion.calcular_posicion_libre_para_clase(
+                        clases_existentes=clases_actuales,
+                        posicion_preferida=pos_pref_nm,
+                        ancho=accion.ancho or 280.0,
+                        cantidad_atributos=3,
+                    )
 
                     id_struct = uuid4()
                     id_inter = uuid4()

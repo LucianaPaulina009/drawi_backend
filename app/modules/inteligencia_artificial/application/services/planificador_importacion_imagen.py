@@ -211,6 +211,36 @@ class PlanificadorImportacionImagen:
         return False
 
     @classmethod
+    def es_identificador_pk(cls, nombre_attr: str, nombre_clase: str) -> bool:
+        """
+        Determina si un nombre de atributo representa la clave primaria propia de una clase
+        (ej. id, pk, id_producto, producto_id, cod_producto, etc.).
+        """
+        if not nombre_attr:
+            return True
+        attr_limpio = cls.limpiar_nombre_atributo(nombre_attr).lower().replace("-", "_").replace(" ", "_")
+        base_clase = cls.normalizar_nombre_base(nombre_clase).replace("-", "_").replace(" ", "_")
+
+        # Identificadores genéricos de PK
+        if attr_limpio in {"id", "pk", "id_pk", "pk_id", "codigo", "cod", "identificador"}:
+            return True
+
+        # Identificadores específicos con el nombre de la clase
+        variaciones_pk = {
+            f"id_{base_clase}",
+            f"{base_clase}_id",
+            f"id{base_clase}",
+            f"{base_clase}id",
+            f"cod_{base_clase}",
+            f"{base_clase}_cod",
+            f"codigo_{base_clase}",
+            f"{base_clase}_codigo",
+            f"pk_{base_clase}",
+            f"{base_clase}_pk",
+        }
+        return attr_limpio in variaciones_pk
+
+    @classmethod
     def determinar_lado_fk_relacion(
         cls,
         rel: RelacionReconocidaIa,
@@ -330,10 +360,27 @@ class PlanificadorImportacionImagen:
         for r in relaciones:
             orig = r.origen_ref.strip().lower()
             dest = r.destino_ref.strip().lower()
-            if (orig in (t_ref_lower, t_nom_lower) and dest in (c_ref_lower, c_nom_lower)) or (
-                dest in (t_ref_lower, t_nom_lower) and orig in (c_ref_lower, c_nom_lower)
-            ):
-                score += 3
+            tipo_r = cls.normalizar_tipo_relacion(r.tipo)
+
+            if orig in (c_ref_lower, c_nom_lower) and dest in (t_ref_lower, t_nom_lower):
+                # Relación sale de clase_c hacia clase_ref
+                if tipo_r in {"agregacion", "composicion"}:
+                    # Si el rombo está en el destino, clase_c es la parte
+                    score += 3
+                elif cls.es_cardinalidad_muchos(r.cardinalidad_origen):
+                    score += 3
+                else:
+                    score += 2
+                break
+            elif dest in (c_ref_lower, c_nom_lower) and orig in (t_ref_lower, t_nom_lower):
+                # Relación llega a clase_c desde clase_ref
+                if tipo_r in {"agregacion", "composicion"}:
+                    # Si el rombo está en clase_c (destino), clase_c es el todo (padre), NO la clase intermedia
+                    score += 0
+                elif cls.es_cardinalidad_muchos(r.cardinalidad_destino):
+                    score += 3
+                else:
+                    score += 2
                 break
 
         return score, candidato_attr
@@ -360,6 +407,18 @@ class PlanificadorImportacionImagen:
         score_a, attr_a = cls.evaluar_evidencia_referencia_clase(clase_c, clase_a, relaciones)
         score_b, attr_b = cls.evaluar_evidencia_referencia_clase(clase_c, clase_b, relaciones)
 
+        name_c = clase_c.nombre.lower().replace("-", "_").replace(" ", "_")
+        name_a = cls.normalizar_nombre_base(clase_a.nombre).replace("-", "_").replace(" ", "_")
+        name_b = cls.normalizar_nombre_base(clase_b.nombre).replace("-", "_").replace(" ", "_")
+
+        # Exigencia estructural: debe tener al menos una FK a los extremos o un nombre compuesto
+        tiene_fk = (attr_a is not None) or (attr_b is not None)
+        nombre_compuesto = (name_a in name_c and name_b in name_c) or (
+            "_" in name_c and (name_a in name_c or name_b in name_c)
+        )
+        if not tiene_fk and not nombre_compuesto:
+            return False, 0, None, None
+
         # Se exige evidencia estructural mínima hacia AMBOS lados
         if score_a < 3 or score_b < 3:
             return False, 0, None, None
@@ -383,9 +442,6 @@ class PlanificadorImportacionImagen:
                 score_pos = 1
 
         score_name = 0
-        name_c = clase_c.nombre.lower().replace("-", "_").replace(" ", "_")
-        name_a = cls.normalizar_nombre_base(clase_a.nombre).replace("-", "_").replace(" ", "_")
-        name_b = cls.normalizar_nombre_base(clase_b.nombre).replace("-", "_").replace(" ", "_")
         if name_a in name_c and name_b in name_c:
             score_name = 2
         elif name_a in name_c or name_b in name_c:
@@ -637,11 +693,6 @@ class PlanificadorImportacionImagen:
                 plan.clases_existentes_mapeo[ref_semantica.lower()] = clase_ex.id
                 plan.clases_existentes_mapeo[nombre_norm] = clase_ex.id
                 plan.clases_existentes_mapeo[str(clase_ex.id).lower()] = clase_ex.id
-
-                for attr in clase_rec.atributos:
-                    plan.atributos_omitidos.append(
-                        f"Atributo '{attr.nombre}' omitido: la clase '{clase_ex.nombre}' ya existe en el diagrama."
-                    )
             else:
                 pos_x, pos_y = posiciones_layout.get(ref_semantica, (200, 200))
                 accion_clase = AccionCrearClaseSchema(
@@ -769,6 +820,17 @@ class PlanificadorImportacionImagen:
                             clase_fk_ref,
                         )
 
+            # Proactivamente excluir cualquier atributo que coincida con patrón FK de las clases vinculadas
+            if orig_obj and dest_obj:
+                for a in orig_obj.atributos:
+                    a_limpio = cls.limpiar_nombre_atributo(a.nombre)
+                    if cls.coincide_nombre_fk(a_limpio, dest_obj.nombre):
+                        atributos_fk_excluidos.add((orig_obj.referencia_semantica.lower(), a_limpio.lower()))
+                for a in dest_obj.atributos:
+                    a_limpio = cls.limpiar_nombre_atributo(a.nombre)
+                    if cls.coincide_nombre_fk(a_limpio, orig_obj.nombre):
+                        atributos_fk_excluidos.add((dest_obj.referencia_semantica.lower(), a_limpio.lower()))
+
             card_orig = cls.normalizar_cardinalidad(
                 rel.cardinalidad_origen, default="1"
             )
@@ -801,6 +863,47 @@ class PlanificadorImportacionImagen:
             ref_semantica = clase_rec.referencia_semantica.strip()
 
             if nombre_norm in mapa_existentes_por_nombre:
+                clase_ex = mapa_existentes_por_nombre[nombre_norm]
+                nombres_existentes = {
+                    cls.limpiar_nombre_atributo(a.nombre).lower() for a in clase_ex.atributos
+                }
+                nombres_registrados_clase = set(nombres_existentes)
+
+                for attr in clase_rec.atributos:
+                    tipo_norm = cls.normalizar_tipo_dato(attr.tipo_detectado)
+                    nombre_attr = cls.limpiar_nombre_atributo(attr.nombre)
+                    nombre_attr_norm = nombre_attr.lower()
+
+                    if nombre_attr_norm in nombres_existentes:
+                        plan.atributos_omitidos.append(
+                            f"Atributo '{nombre_attr}' ya existe en la clase '{clase_ex.nombre}'."
+                        )
+                        continue
+
+                    # Si es una FK que se materializará mediante una relación de la imagen, omitir
+                    if (ref_semantica.lower(), nombre_attr_norm) in atributos_fk_excluidos:
+                        continue
+
+                    # Si es PK o identificador primario, la clase existente en el diagrama ya cuenta con su identidad propia
+                    if attr.es_pk or cls.es_identificador_pk(nombre_attr, clase_ex.nombre) or nombre_attr_norm in {"id", "pk"}:
+                        plan.atributos_omitidos.append(
+                            f"Atributo PK '{nombre_attr}' omitido: la clase '{clase_ex.nombre}' ya cuenta con llave primaria."
+                        )
+                        continue
+
+                    if nombre_attr_norm in nombres_registrados_clase:
+                        continue
+
+                    nombres_registrados_clase.add(nombre_attr_norm)
+                    accion_attr = AccionCrearAtributoSchema(
+                        clase_referencia=ref_semantica,
+                        nombre=nombre_attr,
+                        tipo_dato=tipo_norm,
+                        permite_nulo=attr.permite_nulo,
+                        es_unico=False,
+                        es_llave_primaria=False,
+                    )
+                    acciones_atributos_regulares.append(accion_attr)
                 continue
 
             if ref_semantica.lower() in clases_intermedias_nm_asignadas:
@@ -813,33 +916,18 @@ class PlanificadorImportacionImagen:
                 if attr_fk_b:
                     nombres_fk_excluir.add(cls.limpiar_nombre_atributo(attr_fk_b.nombre).lower())
 
-                pk_rec = next((a for a in clase_rec.atributos if a.es_pk), None)
-                pk_mapeada = False
-                nombres_creados_en_clase: set[str] = {"id"}
+                nombres_creados_en_clase: set[str] = {"id", "pk"}
 
                 for attr in clase_rec.atributos:
                     tipo_norm = cls.normalizar_tipo_dato(attr.tipo_detectado)
                     attr_name = cls.limpiar_nombre_atributo(attr.nombre)
                     attr_name_norm = attr_name.lower()
 
-                    if attr.es_pk or (pk_rec is None and attr_name_norm == "id" and not pk_mapeada):
-                        if not pk_mapeada:
-                            pk_mapeada = True
-                            if attr_name_norm != "id":
-                                from app.modules.inteligencia_artificial.application.services.validador_respuesta_ia import (
-                                    AccionActualizarAtributoSchema,
-                                )
-                                acciones_atributos_intermedias.append(
-                                    AccionActualizarAtributoSchema(
-                                        clase_referencia=ref_semantica,
-                                        atributo_referencia="id",
-                                        nuevo_nombre=attr_name,
-                                        tipo_dato=None,
-                                    )
-                                )
-                                nombres_creados_en_clase.add(attr_name_norm)
+                    # Omitir cualquier PK (la tabla intermedia nace con su ID por defecto)
+                    if attr.es_pk or cls.es_identificador_pk(attr_name, clase_rec.nombre) or attr_name_norm in {"id", "pk"}:
                         continue
 
+                    # Omitir foráneas hacia origen o destino (se materializan con CrearEstructuraNm)
                     if attr_name_norm in nombres_fk_excluir or attr_name_norm in nombres_creados_en_clase:
                         continue
                     if orig_nm and cls.coincide_nombre_fk(attr_name, orig_nm.nombre):
@@ -859,38 +947,19 @@ class PlanificadorImportacionImagen:
                     acciones_atributos_intermedias.append(accion_attr)
                 continue
 
-            pk_reconocida = next((a for a in clase_rec.atributos if a.es_pk), None)
-            pk_ya_mapeada = False
-            nombres_creados_en_clase: set[str] = {"id"}
+            # Clases regulares nuevas: omitir PK (nace con id PK) y FKs de relaciones
+            nombres_creados_en_clase: set[str] = {"id", "pk"}
 
             for attr in clase_rec.atributos:
                 tipo_norm = cls.normalizar_tipo_dato(attr.tipo_detectado)
                 nombre_attr = cls.limpiar_nombre_atributo(attr.nombre)
                 nombre_attr_norm = nombre_attr.lower()
 
-                if attr.es_pk or (
-                    pk_reconocida is None
-                    and nombre_attr_norm == "id"
-                    and not pk_ya_mapeada
-                ):
-                    if not pk_ya_mapeada:
-                        pk_ya_mapeada = True
-                        if nombre_attr_norm != "id":
-                            from app.modules.inteligencia_artificial.application.services.validador_respuesta_ia import (
-                                AccionActualizarAtributoSchema,
-                            )
-
-                            acciones_atributos_regulares.append(
-                                AccionActualizarAtributoSchema(
-                                    clase_referencia=ref_semantica,
-                                    atributo_referencia="id",
-                                    nuevo_nombre=nombre_attr,
-                                    tipo_dato=None,
-                                )
-                            )
-                            nombres_creados_en_clase.add(nombre_attr_norm)
+                # Omitir PK (la clase nace con su 'id' PK por defecto)
+                if attr.es_pk or cls.es_identificador_pk(nombre_attr, clase_rec.nombre) or nombre_attr_norm in {"id", "pk"}:
                     continue
 
+                # Omitir FKs hacia relaciones vinculadas
                 if (ref_semantica.lower(), nombre_attr_norm) in atributos_fk_excluidos:
                     continue
                 if nombre_attr_norm in nombres_creados_en_clase:

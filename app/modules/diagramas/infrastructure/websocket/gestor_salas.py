@@ -6,7 +6,6 @@ import logging
 import time
 from dataclasses import dataclass, field
 from uuid import UUID
-from fastapi import WebSocket
 
 from app.modules.diagramas.infrastructure.websocket.schemas_ws import (
     BloqueoConcedidoPayload,
@@ -20,6 +19,7 @@ from app.modules.diagramas.infrastructure.websocket.schemas_ws import (
     ParticipanteWS,
     SalaUnidaPayload,
 )
+from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 

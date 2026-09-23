@@ -10,6 +10,9 @@ from app.core.config import settings
 from app.modules.diagramas.application.queries.dtos import (
     ClaseDetalleDTO,
     DiagramaDetalleDTO,
+    EstructuraRelacionNmDTO,
+    ReferenciaFKDTO,
+    RelacionDetalleDTO,
 )
 from app.modules.diagramas.application.validaciones import (
     obtener_diagrama_autorizado,
@@ -22,6 +25,12 @@ from app.modules.diagramas.domain.repositories.clase_repository import (
 )
 from app.modules.diagramas.domain.repositories.diagrama_repository import (
     DiagramaRepository,
+)
+from app.modules.diagramas.domain.repositories.estructura_relacion_nm_repository import (
+    EstructuraRelacionNmRepository,
+)
+from app.modules.diagramas.domain.repositories.referencia_fk_repository import (
+    ReferenciaFKRepository,
 )
 from app.modules.diagramas.domain.repositories.relacion_repository import (
     RelacionRepository,
@@ -42,8 +51,8 @@ from app.modules.inteligencia_artificial.application.services.estrategia_modelos
     EstrategiaModelosGemini,
 )
 from app.modules.inteligencia_artificial.application.services.planificador_importacion_imagen import (
-    PlanImportacionImagen,
     PlanificadorImportacionImagen,
+    PlanImportacionImagen,
 )
 from app.modules.inteligencia_artificial.application.services.servicio_layout_importacion import (
     ServicioLayoutImportacion,
@@ -107,6 +116,8 @@ class ProcesarImagenDiagramaIaUseCase:
         ejecutor_plan: EjecutorPlanIa,
         uow: UnitOfWork,
         colaborador_repository: ColaboradorProyectoRepository | None = None,
+        estructura_nm_repository: EstructuraRelacionNmRepository | None = None,
+        referencia_fk_repository: ReferenciaFKRepository | None = None,
     ) -> None:
         self.proyecto_repo = proyecto_repository
         self.diagrama_repo = diagrama_repository
@@ -118,6 +129,8 @@ class ProcesarImagenDiagramaIaUseCase:
         self.ejecutor_plan = ejecutor_plan
         self.uow = uow
         self.colaborador_repo = colaborador_repository
+        self.estructura_nm_repo = estructura_nm_repository
+        self.referencia_fk_repo = referencia_fk_repository
 
     def _validar_archivo_imagen(self, contenido: bytes, mime_type: str) -> str:
         if not contenido or len(contenido) == 0:
@@ -166,14 +179,61 @@ class ProcesarImagenDiagramaIaUseCase:
             )
             clases_dto.append(c_dto)
 
+        referencias_por_relacion: dict[UUID, list[ReferenciaFKDTO]] = {}
+        if self.referencia_fk_repo is not None:
+            for rfk in self.referencia_fk_repo.listar_por_diagrama(diagrama_id):
+                referencias_por_relacion.setdefault(rfk.id_relacion, []).append(
+                    ReferenciaFKDTO(
+                        id=rfk.id,
+                        id_relacion=rfk.id_relacion,
+                        id_atributo_fk=rfk.id_atributo_fk,
+                        id_atributo_referenciado=rfk.id_atributo_referenciado,
+                        on_delete=rfk.on_delete,
+                        on_update=rfk.on_update,
+                    )
+                )
+
+        relaciones_dto: list[RelacionDetalleDTO] = []
+        for r in self.relacion_repo.listar_por_diagrama(diagrama_id):
+            relaciones_dto.append(
+                RelacionDetalleDTO(
+                    id=r.id,
+                    id_diagrama=r.id_diagrama,
+                    id_clase_origen=r.id_clase_origen,
+                    id_clase_destino=r.id_clase_destino,
+                    tipo_relacion=r.tipo_relacion,
+                    cardinalidad_origen=r.cardinalidad_origen,
+                    cardinalidad_destino=r.cardinalidad_destino,
+                    conector_origen=r.conector_origen,
+                    conector_destino=r.conector_destino,
+                    nombre=r.nombre,
+                    referencias_fk=tuple(referencias_por_relacion.get(r.id, [])),
+                )
+            )
+
+        estructuras_dto: list[EstructuraRelacionNmDTO] = []
+        if self.estructura_nm_repo is not None:
+            for est in self.estructura_nm_repo.listar_por_diagrama(diagrama_id):
+                estructuras_dto.append(
+                    EstructuraRelacionNmDTO(
+                        id=est.id,
+                        id_diagrama=est.id_diagrama,
+                        id_clase_origen=est.id_clase_origen,
+                        id_clase_destino=est.id_clase_destino,
+                        id_clase_intermedia=est.id_clase_intermedia,
+                        id_relacion_origen=est.id_relacion_origen,
+                        id_relacion_destino=est.id_relacion_destino,
+                    )
+                )
+
         return DiagramaDetalleDTO(
             id=diagrama_id,
             id_proyecto=UUID("00000000-0000-0000-0000-000000000000"),
             nombre="Diagrama",
             numero=1,
             clases=tuple(clases_dto),
-            relaciones=(),
-            estructuras_nm=(),
+            relaciones=tuple(relaciones_dto),
+            estructuras_nm=tuple(estructuras_dto),
         )
 
     def execute(self, command: ProcesarImagenDiagramaIaCommand) -> InteraccionIa:
@@ -356,9 +416,23 @@ class ProcesarImagenDiagramaIaUseCase:
             lineas.append(f"Se omitieron {len(plan.atributos_omitidos)} atributo(s) de clases ya existentes.")
 
         if rechazados:
-            lineas.append(f"{len(rechazados)} operación(es) no pudieron ser aplicadas por reglas de validación.")
+            motivos = [f"• {r.get('motivo') or r.get('error')}" for r in rechazados if (r.get("motivo") or r.get("error"))]
+            if motivos:
+                lineas.append(
+                    f"{len(rechazados)} operación(es) no pudieron ser aplicadas por reglas de validación:\n"
+                    + "\n".join(motivos)
+                )
+            else:
+                lineas.append(f"{len(rechazados)} operación(es) no pudieron ser aplicadas por reglas de validación.")
         if fallidos:
-            lineas.append(f"{len(fallidos)} operación(es) fallaron durante la ejecución.")
+            motivos_f = [f"• {r.get('motivo') or r.get('error')}" for r in fallidos if (r.get("motivo") or r.get("error"))]
+            if motivos_f:
+                lineas.append(
+                    f"{len(fallidos)} operación(es) fallaron durante la ejecución:\n"
+                    + "\n".join(motivos_f)
+                )
+            else:
+                lineas.append(f"{len(fallidos)} operación(es) fallaron durante la ejecución.")
 
         if not lineas:
             lineas.append("Importación de imagen completada exitosamente.")

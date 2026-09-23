@@ -46,6 +46,7 @@ from app.modules.inteligencia_artificial.application.services.validador_respuest
     AccionCrearClaseSchema,
     AccionCrearEstructuraNmSchema,
     AccionCrearRelacionSchema,
+    PosicionSchema,
 )
 from app.shared.infrastructure.db.better_auth import BetterAuthUser
 
@@ -282,5 +283,144 @@ def test_ejecutor_plan_ia_selecciona_mejores_conectores_segun_geometria(session:
     rel_v = next(r for r in r_repo.listar_por_diagrama(diagrama.id) if r.id_clase_origen == clase_c.id and r.id_clase_destino == clase_d.id)
     assert rel_v.conector_origen.startswith("top")
     assert rel_v.conector_destino.startswith("bottom")
+
+
+def test_ejecutor_plan_ia_crear_clase_precio_con_atributos_numero_y_cantidad(session: Session):
+    usuario = BetterAuthUser(id="user-precio-1", name="UserPrecio", email="precio@drawi.com", email_verified=True)
+    session.add(usuario)
+    session.commit()
+
+    proyecto = ProyectoModel(propietario_id=usuario.id, nombre="Proy Precio", color="azul", icono="caja", slug="proy-precio")
+    session.add(proyecto)
+    session.commit()
+
+    diagrama = DiagramaModel(id_proyecto=proyecto.id, nombre="Diagrama Precio", numero=1)
+    session.add(diagrama)
+    session.commit()
+
+    ejecutor, c_repo, a_repo, _, _ = _setup_repos(session)
+
+    # Simular la respuesta de Gemini cuando el usuario pide: "crea una clase llamada Precio con atributos número y cantidad"
+    acciones = [
+        AccionCrearClaseSchema(referencia="precio", nombre="Precio"),
+        AccionCrearAtributoSchema(clase_referencia="precio", nombre="número", tipo_dato="número"),
+        AccionCrearAtributoSchema(clase_referencia="precio", nombre="cantidad", tipo_dato="cantidad"),
+    ]
+
+    resultados = ejecutor.ejecutar_plan(
+        usuario_id=usuario.id,
+        diagrama_id=diagrama.id,
+        acciones=acciones,
+    )
+
+    assert len(resultados) == 3, f"Resultados: {resultados}"
+    assert all(r["estado"] == "completado" for r in resultados), f"Falló algún paso: {resultados}"
+
+    clases = c_repo.listar_por_diagrama(diagrama.id)
+    assert len(clases) == 1
+    clase_precio = clases[0]
+    assert clase_precio.nombre == "Precio"
+
+    attrs = a_repo.listar_por_clase(clase_precio.id)
+    # Debe tener el id automático + los 2 atributos creados
+    nombres_attrs = {a.nombre: a.tipo_dato for a in attrs}
+    assert "id" in nombres_attrs
+    assert "número" in nombres_attrs
+    assert "cantidad" in nombres_attrs
+    assert nombres_attrs["número"] == "integer"
+    assert nombres_attrs["cantidad"] == "integer"
+
+
+def test_ejecutor_plan_ia_crear_clase_evita_colision_con_clases_existentes(session: Session):
+    from app.modules.inteligencia_artificial.application.services.servicio_layout_importacion import (
+        BoundingBox,
+        ServicioLayoutImportacion,
+    )
+    usuario = BetterAuthUser(id="user-colision-1", name="UserColision", email="colision@drawi.com", email_verified=True)
+    session.add(usuario)
+    session.commit()
+
+    proyecto = ProyectoModel(propietario_id=usuario.id, nombre="Proy Colision", color="azul", icono="caja", slug="proy-colision")
+    session.add(proyecto)
+    session.commit()
+
+    diagrama = DiagramaModel(id_proyecto=proyecto.id, nombre="Diagrama Colision", numero=1)
+    session.add(diagrama)
+    session.commit()
+
+    ejecutor, c_repo, a_repo, _, _ = _setup_repos(session)
+
+    # 1. Crear Clase A en (100, 100)
+    acciones_1 = [
+        AccionCrearClaseSchema(referencia="a", nombre="ClaseA", posicion=PosicionSchema(x=100.0, y=100.0)),
+    ]
+    ejecutor.ejecutar_plan(usuario_id=usuario.id, diagrama_id=diagrama.id, acciones=acciones_1)
+
+    # 2. Intentar crear Clase B exactamente en la misma posición (100, 100)
+    acciones_2 = [
+        AccionCrearClaseSchema(referencia="b", nombre="ClaseB", posicion=PosicionSchema(x=100.0, y=100.0)),
+    ]
+    res = ejecutor.ejecutar_plan(usuario_id=usuario.id, diagrama_id=diagrama.id, acciones=acciones_2)
+    assert all(r["estado"] == "completado" for r in res)
+
+    clases = c_repo.listar_por_diagrama(diagrama.id)
+    assert len(clases) == 2
+    clase_a = next(c for c in clases if c.nombre == "ClaseA")
+    clase_b = next(c for c in clases if c.nombre == "ClaseB")
+
+    # Verificar que no colisionan
+    dim_a = ServicioLayoutImportacion.estimar_dimensiones_clase(len(a_repo.listar_por_clase(clase_a.id)), ancho=float(clase_a.ancho))
+    dim_b = ServicioLayoutImportacion.estimar_dimensiones_clase(len(a_repo.listar_por_clase(clase_b.id)), ancho=float(clase_b.ancho))
+
+    box_a = BoundingBox(float(clase_a.posicion_x), float(clase_a.posicion_y), float(clase_a.posicion_x) + dim_a[0], float(clase_a.posicion_y) + dim_a[1])
+    box_b = BoundingBox(float(clase_b.posicion_x), float(clase_b.posicion_y), float(clase_b.posicion_x) + dim_b[0], float(clase_b.posicion_y) + dim_b[1])
+
+    assert not box_b.intersecta(box_a, margen=20.0), f"Las clases A ({box_a}) y B ({box_b}) colisionan"
+
+
+def test_ejecutor_plan_ia_crear_multiples_clases_sin_solapamiento(session: Session):
+    from app.modules.inteligencia_artificial.application.services.servicio_layout_importacion import (
+        BoundingBox,
+        ServicioLayoutImportacion,
+    )
+    usuario = BetterAuthUser(id="user-multi-pos", name="UserMultiPos", email="multi@drawi.com", email_verified=True)
+    session.add(usuario)
+    session.commit()
+
+    proyecto = ProyectoModel(propietario_id=usuario.id, nombre="Proy Multi", color="azul", icono="caja", slug="proy-multi")
+    session.add(proyecto)
+    session.commit()
+
+    diagrama = DiagramaModel(id_proyecto=proyecto.id, nombre="Diagrama Multi", numero=1)
+    session.add(diagrama)
+    session.commit()
+
+    ejecutor, c_repo, a_repo, _, _ = _setup_repos(session)
+
+    # Crear 3 clases sin especificar posición (o con la misma posición por defecto)
+    acciones = [
+        AccionCrearClaseSchema(referencia="c1", nombre="Cliente"),
+        AccionCrearClaseSchema(referencia="c2", nombre="Pedido"),
+        AccionCrearClaseSchema(referencia="c3", nombre="Producto"),
+    ]
+    res = ejecutor.ejecutar_plan(usuario_id=usuario.id, diagrama_id=diagrama.id, acciones=acciones)
+    assert all(r["estado"] == "completado" for r in res)
+
+    clases = c_repo.listar_por_diagrama(diagrama.id)
+    assert len(clases) == 3
+
+    boxes = []
+    for c in clases:
+        dim = ServicioLayoutImportacion.estimar_dimensiones_clase(len(a_repo.listar_por_clase(c.id)), ancho=float(c.ancho))
+        boxes.append((c.nombre, BoundingBox(float(c.posicion_x), float(c.posicion_y), float(c.posicion_x) + dim[0], float(c.posicion_y) + dim[1])))
+
+    # Verificar todas las parejas
+    for i in range(len(boxes)):
+        for j in range(i + 1, len(boxes)):
+            nombre_1, b1 = boxes[i]
+            nombre_2, b2 = boxes[j]
+            assert not b1.intersecta(b2, margen=20.0), f"Colisión entre {nombre_1} ({b1}) y {nombre_2} ({b2})"
+
+
 
 

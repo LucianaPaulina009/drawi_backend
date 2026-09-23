@@ -157,3 +157,102 @@ class ServicioLayoutImportacion:
                 resultado[c.referencia_semantica] = pos_final
 
         return resultado
+
+    @classmethod
+    def calcular_posicion_libre_para_clase(
+        cls,
+        clases_existentes: Sequence[Any],
+        posicion_preferida: tuple[float, float] | None = None,
+        ancho: float | None = None,
+        cantidad_atributos: int = 0,
+        margen: float = 10.0,
+    ) -> tuple[float, float]:
+        """
+        Calcula una posición (X, Y) limpia en el lienzo asegurando que NO se
+        superponga sobre ninguna clase existente, atributo o relación visible.
+
+        Si se provee una posición preferida que no colisiona, se respeta.
+        Si colisiona o no se provee, encuentra de manera ordenada el espacio libre más cercano.
+        """
+        boxes_existentes: list[BoundingBox] = []
+        for c in clases_existentes:
+            ancho_val = getattr(c, "ancho", None)
+            attrs = getattr(c, "atributos", []) or []
+            pos_x = float(getattr(c, "posicion_x", getattr(c, "posicionX", 0.0)))
+            pos_y = float(getattr(c, "posicion_y", getattr(c, "posicionY", 0.0)))
+            ancho_c, alto_c = cls.estimar_dimensiones_clase(
+                cantidad_atributos=len(attrs),
+                ancho=float(ancho_val) if ancho_val is not None else None,
+            )
+            boxes_existentes.append(
+                BoundingBox(
+                    x_min=pos_x,
+                    y_min=pos_y,
+                    x_max=pos_x + ancho_c,
+                    y_max=pos_y + alto_c,
+                )
+            )
+
+        ancho_nuevo, alto_nuevo = cls.estimar_dimensiones_clase(
+            cantidad_atributos=cantidad_atributos,
+            ancho=ancho,
+        )
+
+        # Si el lienzo está vacío
+        if not boxes_existentes:
+            if posicion_preferida is not None:
+                return (
+                    max(80.0, float(posicion_preferida[0])),
+                    max(80.0, float(posicion_preferida[1])),
+                )
+            return (100.0, 100.0)
+
+        # Si se especificó una posición preferida, verificar si está libre (sin solapamiento real)
+        if posicion_preferida is not None:
+            px, py = float(posicion_preferida[0]), float(posicion_preferida[1])
+            box_pref = BoundingBox(
+                x_min=px,
+                y_min=py,
+                x_max=px + ancho_nuevo,
+                y_max=py + alto_nuevo,
+            )
+            if not any(box_pref.intersecta(b_ex, margen=margen) for b_ex in boxes_existentes):
+                return (px, py)
+
+        # Si colisiona o no hay posición preferida, buscar espacio libre ordenado
+        min_x = min(b.x_min for b in boxes_existentes)
+        min_y = min(b.y_min for b in boxes_existentes)
+        max_x = max(b.x_max for b in boxes_existentes)
+        max_y = max(b.y_max for b in boxes_existentes)
+
+        base_search_x = posicion_preferida[0] if posicion_preferida is not None else max_x + cls.MARGEN_HORIZONTAL_ENTRE_CLASES
+        base_search_y = posicion_preferida[1] if posicion_preferida is not None else min_y
+
+        paso_x = max(ancho_nuevo + cls.MARGEN_HORIZONTAL_ENTRE_CLASES, 320.0)
+        paso_y = max(alto_nuevo + cls.MARGEN_VERTICAL_ENTRE_CLASES, 220.0)
+
+        candidatos: list[tuple[float, float]] = []
+        candidatos.append((max_x + cls.MARGEN_HORIZONTAL_ENTRE_CLASES, min_y))
+        candidatos.append((min_x, max_y + cls.MARGEN_VERTICAL_ENTRE_CLASES))
+
+        for r in range(0, 15):
+            for c in range(0, 15):
+                cand_x = 100.0 + c * paso_x
+                cand_y = 100.0 + r * paso_y
+                if cand_x >= 50.0 and cand_y >= 50.0:
+                    candidatos.append((cand_x, cand_y))
+
+        target_x, target_y = base_search_x, base_search_y
+        candidatos.sort(key=lambda pt: (pt[0] - target_x) ** 2 + (pt[1] - target_y) ** 2)
+
+        for cx, cy in candidatos:
+            box_cand = BoundingBox(
+                x_min=cx,
+                y_min=cy,
+                x_max=cx + ancho_nuevo,
+                y_max=cy + alto_nuevo,
+            )
+            if not any(box_cand.intersecta(b_ex, margen=20.0) for b_ex in boxes_existentes):
+                return (cx, cy)
+
+        return (max_x + cls.MARGEN_HORIZONTAL_ENTRE_CLASES, min_y)

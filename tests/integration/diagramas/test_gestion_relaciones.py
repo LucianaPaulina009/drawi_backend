@@ -597,3 +597,63 @@ def test_operacion_eliminar_relacion_proyecta_clase_actualizada_en_efectos(clien
     c2_act = next((c for c in efectos["clases_actualizadas"] if str(c["id"]) == c2["id"]), None)
     assert c2_act is not None
     assert all(str(a["id"]) != fk_id for a in c2_act["atributos"])
+
+
+def test_relacion_recursiva_asociacion_permitida(client):
+    _, diagrama_id = _crear_proyecto_y_diagrama(client)
+    c1 = _crear_clase(client, diagrama_id, nombre="Empleado")
+
+    rel_id = str(uuid.uuid4())
+    ref_id = str(uuid.uuid4())
+    fk_attr_id = str(uuid.uuid4())
+    crear_res = client.post(
+        f"/api/diagramas/{diagrama_id}/relaciones",
+        json={
+            "id_relacion": rel_id,
+            "id_clase_origen": c1["id"],
+            "id_clase_destino": c1["id"],
+            "tipo_relacion": "asociacion",
+            "cardinalidad_origen": "0..1",
+            "cardinalidad_destino": "0..*",
+            "conector_origen": "top",
+            "conector_destino": "right",
+            "nombre": "Supervisa",
+            "materializacion_fk": [
+                {
+                    "id_referencia_fk": ref_id,
+                    "id_clase_fk": c1["id"],
+                    "id_atributo_referenciado": c1["atributos"][0]["id"],
+                    "atributo_fk_nuevo": {
+                        "id_atributo": fk_attr_id,
+                        "nombre": "supervisor_id",
+                        "tipo_dato": "integer",
+                        "permite_nulo": True,
+                    },
+                }
+            ],
+        },
+    )
+    assert crear_res.status_code == 201
+
+
+def test_relacion_recursiva_no_asociacion_rechazada(client):
+    _, diagrama_id = _crear_proyecto_y_diagrama(client)
+    c1 = _crear_clase(client, diagrama_id, nombre="Carpeta")
+
+    rel_id = str(uuid.uuid4())
+    crear_res = client.post(
+        f"/api/diagramas/{diagrama_id}/relaciones",
+        json={
+            "id_relacion": rel_id,
+            "id_clase_origen": c1["id"],
+            "id_clase_destino": c1["id"],
+            "tipo_relacion": "composicion",
+            "cardinalidad_origen": "1",
+            "cardinalidad_destino": "0..*",
+            "conector_origen": "top",
+            "conector_destino": "bottom",
+        },
+    )
+    assert crear_res.status_code in {400, 422}
+    assert "recursivas" in crear_res.text.lower() or "asociacion" in crear_res.text.lower()
+

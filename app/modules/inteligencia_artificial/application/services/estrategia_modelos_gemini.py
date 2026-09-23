@@ -18,10 +18,16 @@ from app.modules.inteligencia_artificial.domain.exceptions import (
 
 logger = logging.getLogger(__name__)
 
-# Estrategia simplificada: únicamente 2 modelos
+# Cascada de modelos Gemini ordenados por balance de inteligencia, velocidad y resiliencia
 MODELOS_GEMINI_ORDENADOS: Final[tuple[str, ...]] = (
     "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.7-flash",
+    "gemini-3.8-flash",
     "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
 )
 
 
@@ -70,7 +76,7 @@ class EstrategiaModelosGemini:
         self.modelos = tuple(
             modelos
             if modelos is not None
-            else (settings.IA_GEMINI_PRIMARY_MODEL, settings.IA_GEMINI_FALLBACK_MODEL)
+            else getattr(settings, "modelos_gemini_cascada", MODELOS_GEMINI_ORDENADOS)
         )
         self.failures_threshold = (
             failures_threshold
@@ -153,11 +159,8 @@ class EstrategiaModelosGemini:
                 continue
 
             es_half_open = estado_breaker == CircuitState.HALF_OPEN
-            intentos_modelo = 0
-
-            # Intento 1
             total_intentos += 1
-            intentos_modelo += 1
+
             try:
                 resultado = self.proveedor.generar_respuesta(
                     modelo=modelo,
@@ -178,50 +181,14 @@ class EstrategiaModelosGemini:
             except ProveedorIaRecuperableException as err:
                 ultimo_error = err
                 logger.warning(
-                    "Fallo recuperable en intento 1 de modelo %s: %s",
+                    "Fallo recuperable en modelo %s: %s. Saltando inmediatamente al fallback sin reintento sobre el mismo modelo.",
                     modelo,
                     str(err),
                 )
-                if es_half_open:
-                    self._registrar_fallo_recuperable(modelo, en_half_open=True)
-                    continue
-
-                # Si está en CLOSED, intentar 1 reintento técnico con backoff
-                if self.retry_backoff_ms > 0:
-                    time.sleep(self.retry_backoff_ms / 1000.0)
-
-                total_intentos += 1
-                intentos_modelo += 1
-                try:
-                    resultado = self.proveedor.generar_respuesta(
-                        modelo=modelo,
-                        prompt_sistema=prompt_sistema,
-                        mensaje_usuario=mensaje_usuario,
-                        temperatura=temperatura,
-                    )
-                    duracion_ms = (time.monotonic() - inicio_total) * 1000.0
-                    self._registrar_exito(modelo)
-                    return ResultadoProveedorIa(
-                        texto_respuesta=resultado.texto_respuesta,
-                        modelo=modelo,
-                        intentos=total_intentos,
-                        fallback_utilizado=(indice_modelo > 0),
-                        breaker_abierto=alguna_vez_breaker_abierto,
-                        duracion_ms=duracion_ms,
-                    )
-                except ProveedorIaRecuperableException as err_retry:
-                    ultimo_error = err_retry
-                    logger.warning(
-                        "Fallo recuperable en reintento técnico de modelo %s: %s. Saltando al siguiente modelo.",
-                        modelo,
-                        str(err_retry),
-                    )
-                    self._registrar_fallo_recuperable(modelo, en_half_open=False)
-                    continue
-                except (ProveedorIaNoRecuperableException, Exception):
-                    # Errores no recuperables, de autorización o de dominio detienen el flujo sin fallback ni reintento
-                    raise
+                self._registrar_fallo_recuperable(modelo, en_half_open=es_half_open)
+                continue
             except (ProveedorIaNoRecuperableException, Exception):
+                # Errores no recuperables, de autorización o de dominio detienen el flujo sin fallback ni reintento
                 raise
 
         raise ultimo_error or ProveedorIaRecuperableException(
@@ -248,7 +215,6 @@ class EstrategiaModelosGemini:
 
             es_half_open = estado_breaker == CircuitState.HALF_OPEN
 
-            # Intento 1
             try:
                 texto = self.proveedor.transcribir_audio(
                     modelo=modelo,
@@ -261,37 +227,12 @@ class EstrategiaModelosGemini:
             except ProveedorIaRecuperableException as err:
                 ultimo_error = err
                 logger.warning(
-                    "Fallo recuperable en transcripción (intento 1) con modelo %s: %s",
+                    "Fallo recuperable en transcripción con modelo %s: %s. Saltando inmediatamente al fallback sin reintento.",
                     modelo,
                     str(err),
                 )
-                if es_half_open:
-                    self._registrar_fallo_recuperable(modelo, en_half_open=True)
-                    continue
-
-                if self.retry_backoff_ms > 0:
-                    time.sleep(self.retry_backoff_ms / 1000.0)
-
-                try:
-                    texto = self.proveedor.transcribir_audio(
-                        modelo=modelo,
-                        contenido_audio=contenido_audio,
-                        mime_type=mime_type,
-                        idioma=idioma,
-                    )
-                    self._registrar_exito(modelo)
-                    return texto
-                except ProveedorIaRecuperableException as err_retry:
-                    ultimo_error = err_retry
-                    logger.warning(
-                        "Fallo recuperable en reintento de transcripción con modelo %s: %s.",
-                        modelo,
-                        str(err_retry),
-                    )
-                    self._registrar_fallo_recuperable(modelo, en_half_open=False)
-                    continue
-                except (ProveedorIaNoRecuperableException, Exception):
-                    raise
+                self._registrar_fallo_recuperable(modelo, en_half_open=es_half_open)
+                continue
             except (ProveedorIaNoRecuperableException, Exception):
                 raise
 
@@ -319,7 +260,6 @@ class EstrategiaModelosGemini:
 
             es_half_open = estado_breaker == CircuitState.HALF_OPEN
 
-            # Intento 1
             try:
                 json_str = self.proveedor.analizar_diagrama_imagen(
                     modelo=modelo,
@@ -332,40 +272,75 @@ class EstrategiaModelosGemini:
             except ProveedorIaRecuperableException as err:
                 ultimo_error = err
                 logger.warning(
-                    "Fallo recuperable en análisis de imagen (intento 1) con modelo %s: %s",
+                    "Fallo recuperable en análisis de imagen con modelo %s: %s. Saltando inmediatamente al fallback sin reintento.",
                     modelo,
                     str(err),
                 )
-                if es_half_open:
-                    self._registrar_fallo_recuperable(modelo, en_half_open=True)
-                    continue
-
-                if self.retry_backoff_ms > 0:
-                    time.sleep(self.retry_backoff_ms / 1000.0)
-
-                try:
-                    json_str = self.proveedor.analizar_diagrama_imagen(
-                        modelo=modelo,
-                        contenido_imagen=contenido_imagen,
-                        mime_type=mime_type,
-                        prompt_estructural=prompt_estructural,
-                    )
-                    self._registrar_exito(modelo)
-                    return json_str
-                except ProveedorIaRecuperableException as err_retry:
-                    ultimo_error = err_retry
-                    logger.warning(
-                        "Fallo recuperable en reintento de análisis de imagen con modelo %s: %s.",
-                        modelo,
-                        str(err_retry),
-                    )
-                    self._registrar_fallo_recuperable(modelo, en_half_open=False)
-                    continue
-                except (ProveedorIaNoRecuperableException, Exception):
-                    raise
+                self._registrar_fallo_recuperable(modelo, en_half_open=es_half_open)
+                continue
             except (ProveedorIaNoRecuperableException, Exception):
                 raise
 
         raise ultimo_error or ProveedorIaRecuperableException(
             "DRAWI no pudo procesar el análisis de imagen en este momento. Intenta nuevamente."
+        )
+
+    def ejecutar_audio_con_fallback(
+        self,
+        *,
+        prompt_sistema: str,
+        contenido_audio: bytes,
+        mime_type: str,
+        temperatura: float = 0.2,
+    ) -> ResultadoProveedorIa:
+        ultimo_error: ProveedorIaRecuperableException | None = None
+        alguna_vez_breaker_abierto = False
+        inicio_total = time.monotonic()
+        total_intentos = 0
+
+        for indice_modelo, modelo in enumerate(self.modelos):
+            estado_breaker, esta_abierto = self._evaluar_estado_breaker(modelo)
+            if esta_abierto:
+                alguna_vez_breaker_abierto = True
+                logger.warning(
+                    "Circuit breaker OPEN para modelo %s en audio. Omitiendo directamente hacia fallback.",
+                    modelo,
+                )
+                continue
+
+            es_half_open = estado_breaker == CircuitState.HALF_OPEN
+            total_intentos += 1
+
+            try:
+                resultado = self.proveedor.generar_respuesta_audio(
+                    modelo=modelo,
+                    prompt_sistema=prompt_sistema,
+                    contenido_audio=contenido_audio,
+                    mime_type=mime_type,
+                    temperatura=temperatura,
+                )
+                duracion_ms = (time.monotonic() - inicio_total) * 1000.0
+                self._registrar_exito(modelo)
+                return ResultadoProveedorIa(
+                    texto_respuesta=resultado.texto_respuesta,
+                    modelo=modelo,
+                    intentos=total_intentos,
+                    fallback_utilizado=(indice_modelo > 0),
+                    breaker_abierto=alguna_vez_breaker_abierto,
+                    duracion_ms=duracion_ms,
+                )
+            except ProveedorIaRecuperableException as err:
+                ultimo_error = err
+                logger.warning(
+                    "Fallo recuperable en audio con modelo %s: %s. Saltando inmediatamente al fallback sin reintento sobre el mismo modelo.",
+                    modelo,
+                    str(err),
+                )
+                self._registrar_fallo_recuperable(modelo, en_half_open=es_half_open)
+                continue
+            except (ProveedorIaNoRecuperableException, Exception):
+                raise
+
+        raise ultimo_error or ProveedorIaRecuperableException(
+            "DRAWI no pudo procesar la solicitud de audio en este momento. Intenta nuevamente."
         )

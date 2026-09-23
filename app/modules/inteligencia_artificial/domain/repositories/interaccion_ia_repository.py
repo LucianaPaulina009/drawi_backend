@@ -38,6 +38,16 @@ class InteraccionIaRepository(ABC):
         """Lista las N interacciones activas más recientes de un diagrama en orden cronológico."""
         return self.listar_por_diagrama(id_diagrama=id_diagrama, limite=limite)
 
+    def listar_paginado_por_diagrama(
+        self,
+        id_diagrama: UUID,
+        limite: int = 5,
+        offset: int = 0,
+    ) -> tuple[list[InteraccionIa], int]:
+        """Lista una página de interacciones de un diagrama ordenada cronológicamente y el conteo total."""
+        items = self.listar_por_diagrama(id_diagrama=id_diagrama, limite=limite)
+        return items, len(items)
+
     @abstractmethod
     def guardar(self, interaccion: InteraccionIa) -> None:
         """Guarda o actualiza una interacción."""

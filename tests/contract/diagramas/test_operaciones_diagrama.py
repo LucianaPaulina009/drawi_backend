@@ -1,4 +1,4 @@
-﻿from uuid import uuid4
+from uuid import uuid4
 
 
 def _crear_diagrama(client) -> tuple[str, str]:

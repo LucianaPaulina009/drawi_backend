@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import re
 from typing import Annotated, Any, Literal, Union
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from app.modules.diagramas.domain.value_objects.tipo_dato import TipoDato
 from app.modules.inteligencia_artificial.domain.exceptions import (
     RespuestaIaInvalidaException,
 )
@@ -35,6 +36,14 @@ class AccionCrearAtributoSchema(BaseModel):
     es_unico: bool = False
     es_llave_primaria: bool = False
     valor_por_defecto: str | None = None
+
+    @field_validator("tipo_dato", mode="before")
+    @classmethod
+    def normalizar_tipo_dato(cls, v: Any, info) -> str:
+        nombre = ""
+        if hasattr(info, "data") and isinstance(info.data, dict):
+            nombre = info.data.get("nombre", "")
+        return TipoDato.normalizar_o_inferir(v, nombre_atributo=str(nombre)).value
 
 
 class AccionCrearRelacionSchema(BaseModel):
@@ -71,6 +80,16 @@ class AccionActualizarAtributoSchema(BaseModel):
     permite_nulo: bool | None = None
     es_unico: bool | None = None
     valor_por_defecto: str | None = None
+
+    @field_validator("tipo_dato", mode="before")
+    @classmethod
+    def normalizar_tipo_dato(cls, v: Any, info) -> str | None:
+        if v is None:
+            return None
+        nombre = ""
+        if hasattr(info, "data") and isinstance(info.data, dict):
+            nombre = info.data.get("nuevo_nombre") or info.data.get("atributo_referencia") or ""
+        return TipoDato.normalizar_o_inferir(v, nombre_atributo=str(nombre)).value
 
 
 class AccionActualizarRelacionSchema(BaseModel):
@@ -133,6 +152,7 @@ AccionIaUnion = Annotated[
 
 
 class RespuestaInterpretadaIa(BaseModel):
+    transcripcion_usuario: str | None = None
     respuesta_usuario: str
     acciones: list[AccionIaUnion] = Field(default_factory=list)
 
