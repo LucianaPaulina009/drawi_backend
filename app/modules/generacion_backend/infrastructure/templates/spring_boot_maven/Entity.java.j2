@@ -1,0 +1,64 @@
+package {{ package_name }}.entity;
+
+import jakarta.persistence.*;
+{% if entidad.necesita_bigdecimal %}
+import java.math.BigDecimal;
+{% endif %}
+{% if entidad.necesita_localdate %}
+import java.time.LocalDate;
+{% endif %}
+{% if entidad.necesita_localdatetime %}
+import java.time.LocalDateTime;
+{% endif %}
+{% if entidad.necesita_uuid %}
+import java.util.UUID;
+{% endif %}
+
+@Entity
+@Table(name = "{{ entidad.nombre_tabla }}")
+public class {{ entidad.nombre_clase }} {
+
+{% for campo in entidad.campos %}
+    {% if campo.es_pk %}
+    @Id
+    {% if campo.tipo_java in ['Long', 'Integer'] %}
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    {% endif %}
+    {% endif %}
+    @Column(name = "{{ campo.nombre_sql }}"{% if not campo.permite_nulo %}, nullable = false{% endif %}{% if campo.es_unico %}, unique = true{% endif %}{% if campo.longitud %}, length = {{ campo.longitud }}{% endif %}{% if campo.precision %}, precision = {{ campo.precision }}, scale = {{ campo.escala or 0 }}{% endif %})
+    private {{ campo.tipo_java }} {{ campo.nombre_java }};
+
+{% endfor %}
+{% for asoc in entidad.asociaciones %}
+    {% if asoc.tipo == "MANY_TO_ONE" %}
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "{{ asoc.columna_fk_sql }}", insertable = false, updatable = false)
+    private {{ asoc.entidad_destino }} {{ asoc.nombre_campo }};
+    {% endif %}
+{% endfor %}
+
+    public {{ entidad.nombre_clase }}() {
+    }
+
+{% for campo in entidad.campos %}
+    public {{ campo.tipo_java }} {{ campo.nombre_getter }}() {
+        return {{ campo.nombre_java }};
+    }
+
+    public void {{ campo.nombre_setter }}({{ campo.tipo_java }} {{ campo.nombre_java }}) {
+        this.{{ campo.nombre_java }} = {{ campo.nombre_java }};
+    }
+
+{% endfor %}
+{% for asoc in entidad.asociaciones %}
+    {% if asoc.tipo == "MANY_TO_ONE" %}
+    public {{ asoc.entidad_destino }} {{ asoc.nombre_getter }}() {
+        return {{ asoc.nombre_campo }};
+    }
+
+    public void {{ asoc.nombre_setter }}({{ asoc.entidad_destino }} {{ asoc.nombre_campo }}) {
+        this.{{ asoc.nombre_campo }} = {{ asoc.nombre_campo }};
+    }
+    {% endif %}
+{% endfor %}
+}

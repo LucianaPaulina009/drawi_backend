@@ -1,0 +1,77 @@
+package {{ package_name }}.service;
+
+import {{ package_name }}.dto.{{ entidad.nombre_clase }}RequestDto;
+import {{ package_name }}.dto.{{ entidad.nombre_clase }}ResponseDto;
+import {{ package_name }}.entity.{{ entidad.nombre_clase }};
+import {{ package_name }}.exception.ResourceNotFoundException;
+import {{ package_name }}.repository.{{ entidad.nombre_clase }}Repository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+public class {{ entidad.nombre_clase }}Service {
+
+    private final {{ entidad.nombre_clase }}Repository repository;
+
+    public {{ entidad.nombre_clase }}Service({{ entidad.nombre_clase }}Repository repository) {
+        this.repository = repository;
+    }
+
+    @Transactional(readOnly = true)
+    public List<{{ entidad.nombre_clase }}ResponseDto> listarTodos() {
+        return repository.findAll().stream()
+                .map(this::convertirAResponseDto)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public {{ entidad.nombre_clase }}ResponseDto obtenerPorId({{ entidad.pk.tipo_java }} id) {
+        {{ entidad.nombre_clase }} entidad = repository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("No se encontró {{ entidad.nombre_clase }} con id: " + id));
+        return convertirAResponseDto(entidad);
+    }
+
+    @Transactional
+    public {{ entidad.nombre_clase }}ResponseDto crear({{ entidad.nombre_clase }}RequestDto request) {
+        {{ entidad.nombre_clase }} entidad = new {{ entidad.nombre_clase }}();
+{% for campo in entidad.campos %}
+    {% if not campo.es_pk %}
+        entidad.{{ campo.nombre_setter }}(request.{{ campo.nombre_getter }}());
+    {% endif %}
+{% endfor %}
+        {{ entidad.nombre_clase }} guardado = repository.save(entidad);
+        return convertirAResponseDto(guardado);
+    }
+
+    @Transactional
+    public {{ entidad.nombre_clase }}ResponseDto actualizar({{ entidad.pk.tipo_java }} id, {{ entidad.nombre_clase }}RequestDto request) {
+        {{ entidad.nombre_clase }} entidad = repository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("No se encontró {{ entidad.nombre_clase }} con id: " + id));
+{% for campo in entidad.campos %}
+    {% if not campo.es_pk %}
+        entidad.{{ campo.nombre_setter }}(request.{{ campo.nombre_getter }}());
+    {% endif %}
+{% endfor %}
+        {{ entidad.nombre_clase }} actualizado = repository.save(entidad);
+        return convertirAResponseDto(actualizado);
+    }
+
+    @Transactional
+    public void eliminar({{ entidad.pk.tipo_java }} id) {
+        if (!repository.existsById(id)) {
+            throw new ResourceNotFoundException("No se encontró {{ entidad.nombre_clase }} con id: " + id);
+        }
+        repository.deleteById(id);
+    }
+
+    private {{ entidad.nombre_clase }}ResponseDto convertirAResponseDto({{ entidad.nombre_clase }} entidad) {
+        {{ entidad.nombre_clase }}ResponseDto dto = new {{ entidad.nombre_clase }}ResponseDto();
+{% for campo in entidad.campos %}
+        dto.{{ campo.nombre_setter }}(entidad.{{ campo.nombre_getter }}());
+{% endfor %}
+        return dto;
+    }
+}

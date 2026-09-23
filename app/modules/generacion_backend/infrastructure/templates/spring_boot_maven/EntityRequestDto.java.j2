@@ -1,0 +1,51 @@
+package {{ package_name }}.dto;
+
+import jakarta.validation.constraints.*;
+{% if entidad.necesita_bigdecimal %}
+import java.math.BigDecimal;
+{% endif %}
+{% if entidad.necesita_localdate %}
+import java.time.LocalDate;
+{% endif %}
+{% if entidad.necesita_localdatetime %}
+import java.time.LocalDateTime;
+{% endif %}
+{% if entidad.necesita_uuid %}
+import java.util.UUID;
+{% endif %}
+
+public class {{ entidad.nombre_clase }}RequestDto {
+
+{% for campo in entidad.campos %}
+    {% if not campo.es_pk %}
+    {% if not campo.permite_nulo %}
+    {% if campo.tipo_java == "String" %}
+    @NotBlank(message = "El campo {{ campo.nombre_java }} es obligatorio.")
+    {% else %}
+    @NotNull(message = "El campo {{ campo.nombre_java }} es obligatorio.")
+    {% endif %}
+    {% endif %}
+    {% if campo.longitud and campo.tipo_java == "String" %}
+    @Size(max = {{ campo.longitud }}, message = "El campo {{ campo.nombre_java }} no puede exceder {{ campo.longitud }} caracteres.")
+    {% endif %}
+    private {{ campo.tipo_java }} {{ campo.nombre_java }};
+
+    {% endif %}
+{% endfor %}
+
+    public {{ entidad.nombre_clase }}RequestDto() {
+    }
+
+{% for campo in entidad.campos %}
+    {% if not campo.es_pk %}
+    public {{ campo.tipo_java }} {{ campo.nombre_getter }}() {
+        return {{ campo.nombre_java }};
+    }
+
+    public void {{ campo.nombre_setter }}({{ campo.tipo_java }} {{ campo.nombre_java }}) {
+        this.{{ campo.nombre_java }} = {{ campo.nombre_java }};
+    }
+
+    {% endif %}
+{% endfor %}
+}

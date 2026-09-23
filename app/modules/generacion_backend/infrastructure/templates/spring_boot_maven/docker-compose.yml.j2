@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: {{ slug }}-postgres
+    environment:
+      POSTGRES_DB: {{ slug | replace('-', '_') }}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d {{ slug | replace('-', '_') }}"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app-network
+
+  app:
+    build: .
+    container_name: {{ slug }}-api
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/{{ slug | replace('-', '_') }}
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

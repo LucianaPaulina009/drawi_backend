@@ -1,0 +1,61 @@
+package {{ package_name }}.dto;
+
+import java.time.LocalDateTime;
+
+public class ApiResponse<T> {
+    private boolean exito;
+    private String mensaje;
+    private T datos;
+    private LocalDateTime marcaTiempo;
+
+    public ApiResponse() {
+        this.marcaTiempo = LocalDateTime.now();
+    }
+
+    public ApiResponse(boolean exito, String mensaje, T datos) {
+        this.exito = exito;
+        this.mensaje = mensaje;
+        this.datos = datos;
+        this.marcaTiempo = LocalDateTime.now();
+    }
+
+    public static <T> ApiResponse<T> exito(String mensaje, T datos) {
+        return new ApiResponse<>(true, mensaje, datos);
+    }
+
+    public static <T> ApiResponse<T> error(String mensaje) {
+        return new ApiResponse<>(false, mensaje, null);
+    }
+
+    public boolean isExito() {
+        return exito;
+    }
+
+    public void setExito(boolean exito) {
+        this.exito = exito;
+    }
+
+    public String getMensaje() {
+        return mensaje;
+    }
+
+    public void setMensaje(String mensaje) {
+        this.mensaje = mensaje;
+    }
+
+    public T getDatos() {
+        return datos;
+    }
+
+    public void setDatos(T datos) {
+        this.datos = datos;
+    }
+
+    public LocalDateTime getMarcaTiempo() {
+        return marcaTiempo;
+    }
+
+    public void setMarcaTiempo(LocalDateTime marcaTiempo) {
+        this.marcaTiempo = marcaTiempo;
+    }
+}

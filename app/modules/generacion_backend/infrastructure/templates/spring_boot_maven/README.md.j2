@@ -1,0 +1,53 @@
+# {{ nombre_proyecto }} - Backend Spring Boot
+
+Backend generado automáticamente por **DRAWI** a partir del diagrama confirmado.
+
+- **Plantilla**: Spring Boot {{ spring_boot_version }} con Java {{ java_version }}
+- **Base de datos**: PostgreSQL
+- **Documentación API**: Swagger UI / OpenAPI 3
+
+---
+
+## 🚀 Requisitos previos
+
+- Java {{ java_version }} JDK
+- Maven 3.8+ (o utilizar wrapper)
+- Docker y Docker Compose (opcional, para levantar BD y app con un solo comando)
+
+---
+
+## 🐳 Ejecución con Docker Compose (Recomendado)
+
+Para levantar la base de datos PostgreSQL y la aplicación con un solo comando:
+
+```bash
+docker compose up --build
+```
+
+La aplicación estará disponible en: `http://localhost:8080`  
+La documentación interactiva de Swagger UI en: `http://localhost:8080/swagger-ui.html`
+
+---
+
+## 💻 Ejecución local
+
+1. Asegúrate de tener una instancia de PostgreSQL corriendo en `localhost:5432` con la base de datos `{{ slug | replace('-', '_') }}` (usuario `postgres`, clave `postgres`).
+2. Ejecuta la aplicación con Maven:
+
+```bash
+mvn spring-boot:run
+```
+
+---
+
+## 📋 Endpoints disponibles
+
+{% for entidad in entidades %}
+### {{ entidad.nombre_clase }} (`/api/{{ entidad.endpoint_path }}`)
+- `GET /api/{{ entidad.endpoint_path }}` - Listar todos los registros
+- `GET /api/{{ entidad.endpoint_path }}/{id}` - Obtener por ID
+- `POST /api/{{ entidad.endpoint_path }}` - Crear nuevo registro
+- `PUT /api/{{ entidad.endpoint_path }}/{id}` - Actualizar registro existente
+- `DELETE /api/{{ entidad.endpoint_path }}/{id}` - Eliminar registro
+
+{% endfor %}

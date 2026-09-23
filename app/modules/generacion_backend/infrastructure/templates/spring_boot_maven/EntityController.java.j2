@@ -1,0 +1,62 @@
+package {{ package_name }}.controller;
+
+import {{ package_name }}.dto.ApiResponse;
+import {{ package_name }}.dto.{{ entidad.nombre_clase }}RequestDto;
+import {{ package_name }}.dto.{{ entidad.nombre_clase }}ResponseDto;
+import {{ package_name }}.service.{{ entidad.nombre_clase }}Service;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/{{ entidad.endpoint_path }}")
+@Tag(name = "{{ entidad.nombre_clase }}", description = "Endpoints de gestión para {{ entidad.nombre_clase }}")
+public class {{ entidad.nombre_clase }}Controller {
+
+    private final {{ entidad.nombre_clase }}Service service;
+
+    public {{ entidad.nombre_clase }}Controller({{ entidad.nombre_clase }}Service service) {
+        this.service = service;
+    }
+
+    @GetMapping
+    @Operation(summary = "Listar todos los registros de {{ entidad.nombre_clase }}")
+    public ResponseEntity<ApiResponse<List<{{ entidad.nombre_clase }}ResponseDto>>> listar() {
+        List<{{ entidad.nombre_clase }}ResponseDto> datos = service.listarTodos();
+        return ResponseEntity.ok(ApiResponse.exito("Listado obtenido exitosamente.", datos));
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Obtener {{ entidad.nombre_clase }} por ID")
+    public ResponseEntity<ApiResponse<{{ entidad.nombre_clase }}ResponseDto>> obtenerPorId(@PathVariable {{ entidad.pk.tipo_java }} id) {
+        {{ entidad.nombre_clase }}ResponseDto datos = service.obtenerPorId(id);
+        return ResponseEntity.ok(ApiResponse.exito("Registro encontrado.", datos));
+    }
+
+    @PostMapping
+    @Operation(summary = "Crear nuevo registro de {{ entidad.nombre_clase }}")
+    public ResponseEntity<ApiResponse<{{ entidad.nombre_clase }}ResponseDto>> crear(@Valid @RequestBody {{ entidad.nombre_clase }}RequestDto request) {
+        {{ entidad.nombre_clase }}ResponseDto datos = service.crear(request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.exito("Registro creado exitosamente.", datos));
+    }
+
+    @PutMapping("/{id}")
+    @Operation(summary = "Actualizar registro de {{ entidad.nombre_clase }}")
+    public ResponseEntity<ApiResponse<{{ entidad.nombre_clase }}ResponseDto>> actualizar(@PathVariable {{ entidad.pk.tipo_java }} id, @Valid @RequestBody {{ entidad.nombre_clase }}RequestDto request) {
+        {{ entidad.nombre_clase }}ResponseDto datos = service.actualizar(id, request);
+        return ResponseEntity.ok(ApiResponse.exito("Registro actualizado exitosamente.", datos));
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Eliminar registro de {{ entidad.nombre_clase }}")
+    public ResponseEntity<ApiResponse<Void>> eliminar(@PathVariable {{ entidad.pk.tipo_java }} id) {
+        service.eliminar(id);
+        return ResponseEntity.ok(ApiResponse.exito("Registro eliminado exitosamente.", null));
+    }
+}
